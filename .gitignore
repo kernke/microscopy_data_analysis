@@ -1,0 +1,8 @@
+#ignore automatically generated python files
+__pycache__/
+.ipynb_checkpoints/
+build/
+dist/
+*.egg-info/
+*.tif
+*.png
