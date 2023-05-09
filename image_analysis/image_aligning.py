@@ -11,6 +11,8 @@ from copy import deepcopy
 # def phase_correlation(im1,im2):
 #    return (ifftn(fftn(im1)*ifftn(im2))).real
 
+
+
 #%% phase_correlation
 def phase_correlation(a, b):
     G_a = np.fft.fft2(a)
@@ -874,3 +876,128 @@ def manual_correction(images, absolute_positions, tile_dimensions, mask, zoom=0.
         + "\nFor closing the program at any point press esc \n(to reset internal counters).",
     )
     plt.show()
+
+
+
+
+#%% points_on_image
+def points_on_image(image):
+    global list_of_points
+    global ax
+    list_of_points = []
+
+    fig, ax = plt.subplots()
+
+    ax.imshow(image, cmap="gray")
+    # ax.set_title("$")
+    # ax.set_xticks([0,np.pi,2*np.pi],["0","$\pi$","$2\pi$"])
+    fig.canvas.mpl_connect("button_press_event", click)
+    plt.gcf().canvas.draw_idle()
+
+    return list_of_points
+
+
+#%% click
+def click(event):
+    global list_of_points
+
+    if event.button == 3:  # right clicking
+
+        x = event.xdata
+        y = event.ydata
+
+        list_of_points.append([x, y])
+        ax.plot(x, y, "o")
+        print(x, y)
+        plt.gcf().canvas.draw()
+
+
+#%% align_images
+
+
+def align_image_fast1(im1, matrix1, reswidth, resheight):
+    return cv2.warpPerspective(
+        im1, matrix1, (reswidth, resheight), flags=cv2.INTER_CUBIC
+    )
+
+
+def align_image_fast2(im2, reswidth, resheight, width_shift, height_shift):
+    img2Reg = np.zeros([resheight, reswidth])
+    img2Reg[
+        height_shift : height_shift + im2.shape[0],
+        width_shift : width_shift + im2.shape[1],
+    ] = im2
+    return img2Reg
+
+
+def align_images(im1s, im2, p1s, p2, verbose=False):
+    # align p1 to p2
+    # p2 higher resolution recommended
+
+    allwidths = []
+    allheights = []
+    for i in range(len(im1s)):
+
+        im1 = im1s[i]
+        p1 = p1s[i]
+
+        matrix1, mask1 = cv2.findHomography(p1, p2, cv2.RANSAC, 5.0)
+
+        xf = np.arange(im1.shape[1] - 1).tolist()
+        xf += (np.zeros(im1.shape[0] - 1) + im1.shape[1] - 1).tolist()
+        xf += np.arange(1, im1.shape[1]).tolist()
+        xf += np.zeros(im1.shape[0] - 1).tolist()
+
+        yf = np.zeros(im1.shape[1] - 1).tolist()
+        yf += np.arange(im1.shape[0] - 1).tolist()
+        yf += (np.zeros(im1.shape[1] - 1) + im1.shape[0] - 1).tolist()
+        yf += np.arange(1, im1.shape[0]).tolist()
+
+        img_matrix = np.stack([xf, yf, np.ones(len(xf))])
+
+        res = np.tensordot(matrix1, img_matrix, axes=1)
+
+        allwidths.append(np.round(min(np.min(res[0]), 0)).astype(int))
+        allheights.append(np.round(min(np.min(res[1]), 0)).astype(int))
+
+        allwidths.append(
+            np.round(max(np.max(res[0]), im2.shape[1])).astype(int) - allwidths[-1]
+        )
+        allheights.append(
+            np.round(max(np.max(res[1]), im2.shape[0])).astype(int) - allheights[-1]
+        )
+
+    reswidth = np.max(allwidths)
+    resheight = np.max(allheights)
+    width_shift = np.abs(np.min(allwidths))
+    height_shift = np.abs(np.min(allheights))
+    shift = np.array([width_shift, height_shift])
+
+    img2Reg = np.zeros([resheight, reswidth])
+    img2Reg[
+        height_shift : height_shift + im2.shape[0],
+        width_shift : width_shift + im2.shape[1],
+    ] = im2
+
+    im1res = []
+
+    p2a = np.zeros(p2.shape)
+    for i in range(len(p2)):
+        p2a[i] = p2[i] + shift
+
+    matrices = []
+    for i in range(len(im1s)):
+        p1 = p1s[i]
+        im1 = im1s[i]
+
+        matrix1, mask1 = cv2.findHomography(p1, p2a, cv2.RANSAC, 5.0)
+        matrices.append(matrix1)
+        img1Reg = cv2.warpPerspective(
+            im1, matrix1, (reswidth, resheight), flags=cv2.INTER_CUBIC
+        )
+        im1res.append(img1Reg)
+
+    if verbose:
+        return im1res, img2Reg, matrices, reswidth, resheight, width_shift, height_shift
+    else:
+        return im1res, img2Reg

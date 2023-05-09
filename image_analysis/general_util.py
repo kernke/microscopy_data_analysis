@@ -12,39 +12,16 @@ import scipy.special
 from skimage.draw import circle_perimeter
 from skimage.draw import line_aa
 import matplotlib.pyplot as plt
-import h5py
 
-import imageio
+from .image_processing import img_make_square
+
+
 
 #%% folder_file
 def folder_file(path_string):
     name = path_string.replace("\\", "/")
     pos = name[::-1].find("/")
     return name[:-pos], name[-pos:]
-
-
-
-class h5func:
-
-    #%% merge_h5pys
-    
-    
-    def merge_h5pys(newh5, *h5files):
-        with h5py.File(newh5, "w") as res:
-            for i in h5files:
-                with h5py.File(i, "r") as hf:
-                    for j in hf.keys():
-                        hf.copy(hf[j], res, j)
-    
-    
-    def merge_h5files(newh5, *h5files):
-        with h5py.File(newh5, "w") as res:
-            for i in h5files:
-                pathname, groupname = folder_file(i)
-                with h5py.File(i, "r") as hf:
-                    for j in hf.keys():
-                        hf.copy(hf[j], res, groupname[:-3] + "/" + j)
-
 
 #%% assure_multiple
 def assure_multiple(*x):
@@ -62,303 +39,207 @@ def assure_multiple(*x):
     else:
         return res
 
-
-def to_uint8(img):
-    img -= np.min(img)
-    return (img / np.max(img) * 255.5).astype(np.uint8)
-
-
-#%% points_on_image
-def points_on_image(image):
-    global list_of_points
-    global ax
-    list_of_points = []
-
-    fig, ax = plt.subplots()
-
-    ax.imshow(image, cmap="gray")
-    # ax.set_title("$")
-    # ax.set_xticks([0,np.pi,2*np.pi],["0","$\pi$","$2\pi$"])
-    fig.canvas.mpl_connect("button_press_event", click)
-    plt.gcf().canvas.draw_idle()
-
-    return list_of_points
-
-
-#%% click
-def click(event):
-    global list_of_points
-
-    if event.button == 3:  # right clicking
-
-        x = event.xdata
-        y = event.ydata
-
-        list_of_points.append([x, y])
-        ax.plot(x, y, "o")
-        print(x, y)
-        plt.gcf().canvas.draw()
-
-
-#%% align_images
-
-
-def align_image_fast1(im1, matrix1, reswidth, resheight):
-    return cv2.warpPerspective(
-        im1, matrix1, (reswidth, resheight), flags=cv2.INTER_CUBIC
+#%%
+def rfft_circ_mask(imshape, mask_radius=680, mask_sigma=50):
+    kernel_size = 7 * mask_sigma
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    mask = make_circular_mask(
+        (imshape[0] - 1) / 2, (imshape[1] - 1) / 2, mask_radius, np.zeros(imshape)
+    )
+    maskb = cv2.GaussianBlur(
+        mask.astype(np.double), [kernel_size, kernel_size], mask_sigma
     )
 
+    rolledmask = np.roll(maskb, -int(maskb.shape[0] / 2), axis=0)
+    rolledmask = np.roll(rolledmask, -int(maskb.shape[1] / 2), axis=1)
 
-def align_image_fast2(im2, reswidth, resheight, width_shift, height_shift):
-    img2Reg = np.zeros([resheight, reswidth])
-    img2Reg[
-        height_shift : height_shift + im2.shape[0],
-        width_shift : width_shift + im2.shape[1],
-    ] = im2
-    return img2Reg
+    halfrolledmask = rolledmask[:, : rolledmask.shape[1] // 2 + 1]
+    return halfrolledmask
 
 
-def align_images(im1s, im2, p1s, p2, verbose=False):
-    # align p1 to p2
-    # p2 higher resolution recommended
 
-    allwidths = []
-    allheights = []
-    for i in range(len(im1s)):
-
-        im1 = im1s[i]
-        p1 = p1s[i]
-
-        matrix1, mask1 = cv2.findHomography(p1, p2, cv2.RANSAC, 5.0)
-
-        xf = np.arange(im1.shape[1] - 1).tolist()
-        xf += (np.zeros(im1.shape[0] - 1) + im1.shape[1] - 1).tolist()
-        xf += np.arange(1, im1.shape[1]).tolist()
-        xf += np.zeros(im1.shape[0] - 1).tolist()
-
-        yf = np.zeros(im1.shape[1] - 1).tolist()
-        yf += np.arange(im1.shape[0] - 1).tolist()
-        yf += (np.zeros(im1.shape[1] - 1) + im1.shape[0] - 1).tolist()
-        yf += np.arange(1, im1.shape[0]).tolist()
-
-        img_matrix = np.stack([xf, yf, np.ones(len(xf))])
-
-        res = np.tensordot(matrix1, img_matrix, axes=1)
-
-        allwidths.append(np.round(min(np.min(res[0]), 0)).astype(int))
-        allheights.append(np.round(min(np.min(res[1]), 0)).astype(int))
-
-        allwidths.append(
-            np.round(max(np.max(res[0]), im2.shape[1])).astype(int) - allwidths[-1]
-        )
-        allheights.append(
-            np.round(max(np.max(res[1]), im2.shape[0])).astype(int) - allheights[-1]
-        )
-
-    reswidth = np.max(allwidths)
-    resheight = np.max(allheights)
-    width_shift = np.abs(np.min(allwidths))
-    height_shift = np.abs(np.min(allheights))
-    shift = np.array([width_shift, height_shift])
-
-    img2Reg = np.zeros([resheight, reswidth])
-    img2Reg[
-        height_shift : height_shift + im2.shape[0],
-        width_shift : width_shift + im2.shape[1],
-    ] = im2
-
-    im1res = []
-
-    p2a = np.zeros(p2.shape)
-    for i in range(len(p2)):
-        p2a[i] = p2[i] + shift
-
-    matrices = []
-    for i in range(len(im1s)):
-        p1 = p1s[i]
-        im1 = im1s[i]
-
-        matrix1, mask1 = cv2.findHomography(p1, p2a, cv2.RANSAC, 5.0)
-        matrices.append(matrix1)
-        img1Reg = cv2.warpPerspective(
-            im1, matrix1, (reswidth, resheight), flags=cv2.INTER_CUBIC
-        )
-        im1res.append(img1Reg)
-
-    if verbose:
-        return im1res, img2Reg, matrices, reswidth, resheight, width_shift, height_shift
+#%% peak_com
+def peak_com(y, delta=None, roi=None):
+    if roi is None:
+        pos = np.argmax(y)
     else:
-        return im1res, img2Reg
+        pos = roi[0] + np.argmax(y[roi[0] : roi[1]])
+    if delta is None:
+        delta = min(pos, len(y) - pos)
+        print(delta)
+        start = pos - delta
+        end = pos + delta
+    else:
+        start = max(0, pos - delta)
+        end = min(len(y), pos + delta)
+    return np.sum(np.arange(start, end) * y[start:end]) / np.sum(y[start:end]), pos
 
 
-#%%  plot_sortout
-def plot_sortout(image, sortout, legend=True, alpha=0.5, markersize=0.5):
-    plt.imshow(image, cmap="gray")
-    colors = ["b", "r", "g", "c", "m", "y"]
-    for j in range(len(sortout)):
-        count = 0
-        for i in sortout[j]:
-            if count == 0:
-                plt.plot(
-                    i[:, 1],
-                    i[:, 0],
-                    "o",
-                    c=colors[j],
-                    alpha=alpha,
-                    label=str(j),
-                    markersize=markersize,
-                )
-            else:
-                plt.plot(
-                    i[:, 1],
-                    i[:, 0],
-                    "o",
-                    c=colors[j],
-                    alpha=alpha,
-                    markersize=markersize,
-                )
-            count += 1
-    if legend == True:
-        plt.legend()
+#%% peak_com2d
 
 
-#%% morphLaplace
-def morphLaplace(image, kernel):
-    return cv2.erode(image, kernel) + cv2.dilate(image, kernel) - 2 * image - 128
+def peak_com2d(data, delta=None, roi=None):
+
+    if len(np.shape(delta)) == 0:
+        delt = [delta, delta]
+    else:
+        delt = delta
+
+    if roi is None:
+        dat = data
+        roi = [[0, data.shape[0]], [0, data.shape[1]]]
+    else:
+        dat = data[roi[0][0] : roi[0][1], roi[1][0] : roi[1][1]]
+
+    dist = np.argmax(dat)
+    disty = dist % dat.shape[1]
+    distx = dist // dat.shape[1]
+
+    delt[0] = min(distx, dat.shape[0] - distx)
+    delt[1] = min(disty, dat.shape[1] - disty)
+
+    xstart = distx - delt[0]
+    xend = distx + delt[0]
+    ystart = disty - delt[1]
+    yend = disty + delt[1]
+    dat2 = dat[xstart:xend, ystart:yend]
+
+    y = np.sum(dat2, axis=0)
+    x = np.sum(dat2, axis=1)
+
+    indx = np.arange(xstart, xend)
+    indy = np.arange(ystart, yend)
+
+    mvposx = distx + roi[0][0]
+    mvposy = disty + roi[1][0]
+
+    xpos = np.sum(indx * x) / np.sum(x)
+    ypos = np.sum(indy * y) / np.sum(y)
+
+    xpos += roi[0][0]
+    ypos += roi[1][0]
+
+    return np.array([xpos, ypos]), np.array([mvposx, mvposy])
 
 
-#%% gammaCorrection
-def gammaCorrection(src, gamma):
-    invGamma = 1 / gamma
+#%%
+def polygon_roi(directions_deg, radius):
+    directions_deg = np.array(directions_deg)
+    directions_neg = directions_deg + 180
 
-    table = [((i / 255) ** invGamma) * 255 for i in range(256)]
-    table = np.array(table, np.uint8)
+    directions_all = np.concatenate((directions_deg, directions_neg))
+    directions_rad = directions_all / 180 * np.pi
 
-    return cv2.LUT(src, table)
+    x = radius * np.cos(directions_rad)
+    y = radius * np.sin(directions_rad)
 
+    x -= np.min(x)
+    y -= np.min(y)
 
-#%% make_scale_bar
-def make_scale_bar(
-    images, pixratios, lengthperpix, barlength, org, thickness=4, color=(255, 0, 0)
-):
-
-    org = np.array(org)
-    for i in range(len(images)):
-        pixlength = (barlength / lengthperpix) / pixratios[i]
-        pixlength = np.round(pixlength).astype(int)
-        pt2 = org + np.array([0, pixlength])
-        cv2.line(images[i], org[::-1], pt2[::-1], color, thickness=thickness)
+    return x.astype(int), y.astype(int)
 
 
-#%% make_square
+#%%
+@njit("float64(float64,float64,float64,float64,float64,float64)")
+def isleft(P0_0, P0_1, P1_0, P1_1, P2_0, P2_1):
+    return (P1_0 - P0_0) * (P2_1 - P0_1) - (P2_0 - P0_0) * (P1_1 - P0_1)
 
 
-def make_square(image, startindex=None):
+def point_in_roi(xroi, yroi, xpoint, ypoint):
+    signs = np.zeros(len(xroi))
+    for i in range(len(xroi)):
+        signs[i] = isleft(xroi[i - 1], yroi[i - 1], xroi[i], yroi[i], xpoint, ypoint)
+    return np.prod(np.sign(signs)) > 0
+
+#%% lineIntersection
+def lineIntersection(a, b, c, d):
+    # Line AB represented as a1x + b1y = c1
+    a1 = b[1] - a[1]
+    b1 = a[0] - b[0]
+    c1 = a1 * (a[0]) + b1 * (a[1])
+
+    # Line CD represented as a2x + b2y = c2
+    a2 = d[1] - c[1]
+    b2 = c[0] - d[0]
+    c2 = a2 * (c[0]) + b2 * (c[1])
+
+    determinant = a1 * b2 - a2 * b1
+
+    x = (b2 * c1 - b1 * c2) / determinant
+    y = (a1 * c2 - a2 * c1) / determinant
+    return (x, y)
+
+
+def ccw(A, B, C):
+    return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
+
+
+# Return true if line segments AB and CD intersect
+def intersect(A, B, C, D):
+    return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
+
+#%%
+def get_n_peaks_1d(y, x=None, delta=0, n=5, roi=None):
     """
-    crops the largest square image from the original, by default from the center
-    the position of the cropped square can be specified via startindex,
-    moving the frame from the upper left corner at startindex=0
-    to the lower right corner at startindex=|M-N|
+    Obtain n maxima from y in descending order
+    Calculated by consecutively finding the maximum of y
+    and setting values near the maximum with distance +-delta
+    to a median value of y, then repeating the process n times
 
     Parameters
     ----------
-    image: MxN array ; numpy array
-    startindex: 0 <= startindex <= |M-N| ; int
+    y: array
 
-    Returns:
-    square_image either MxM or NxN ; numpy array
+    optional:
+    x: array, defaults to None
+    delta: float, defaults to 0
+    n: int, defaults to 1
+    roi: tuple, defaults to None
 
+    Returns
+    -------
+    array with length n containing the positions of the n peaks
     """
 
-    ishape = image.shape
-    index_small, index_big = np.argsort(ishape)
-
-    roi = np.zeros([2, 2], dtype=int)
-
-    roi[index_small] = [0, ishape[index_small]]
-
-    delta = np.abs(ishape[1] - ishape[0])
-
-    if startindex is None:
-        startindex = np.floor(delta / 2)
+    if x is None:
+        x = np.arange(len(y))
     else:
-        if startindex > delta or startindex < 0:
-            print("Error: Invalid startindex")
-            print("0 <= startindex <= " + str(delta))
+        dist = 1
+        while x[dist] - x[0] == 0:
+            dist += 1
+        if x[dist] - x[0] < 0:
+            sortindex = np.argsort(x)
+            x = x[sortindex]
+            y = y[sortindex]
 
-    roi[index_big] = startindex, startindex + ishape[index_small]
+    if roi is None:
+        newy = copy.deepcopy(y)
+        xadd = 0
+    else:
+        start = np.where(x >= roi[0])[0][0]
+        if roi[1] >= np.max(x):
+            end = len(x)
+        else:
+            end = np.where(x > roi[1])[0][0]
+        xadd = start
+        newy = copy.deepcopy(y[start:end])
 
-    square_image = image[roi[0, 0] : roi[0, 1], roi[1, 0] : roi[1, 1]]
+    ymaxpos = np.zeros(n, dtype=int)
+    med = np.min(y)
+    for i in range(n):
+        pos = np.argmax(newy)
+        ymaxpos[i] = pos + xadd
 
-    return square_image
+        delstart = np.where(x >= x[ymaxpos[i]] - delta)[0][0] - xadd
+        delend = np.where(x <= x[ymaxpos[i]] + delta)[0][-1] + 1 - xadd
+        if delstart < 0:
+            delstart = 0
+        newy[delstart:delend] = med
 
-
-#%% make_mp4
-def make_mp4(filename, images, fps):
-
-    with imageio.get_writer(filename, mode="I", fps=fps) as writer:
-        for i in range(len(images)):
-            writer.append_data(images[i])
-
-    return True
-
-
-#%% zoom
+    return x[ymaxpos]
 
 
-def zoom(img, zoom_center, final_height, steps, gif_resolution_to_final=1):
-
-    iratio = img.shape[0] / img.shape[1]
-
-    final_size = np.array([final_height, final_height / iratio])
-
-    startpoints = np.zeros([4, 2], dtype=int)
-    endpoints = np.zeros([4, 2], dtype=int)
-
-    startpoints[2, 1] = img.shape[1] - 1
-    startpoints[1, 0] = img.shape[0] - 1
-    startpoints[3] = img.shape
-    startpoints[3] -= 1
-
-    endpoints[0] = np.round(zoom_center - final_size / 2).astype(int)
-    endpoints[3] = np.round(zoom_center + final_size / 2).astype(int)
-
-    tocorner = np.array([-final_size[0], final_size[1]]) / 2
-    endpoints[1] = np.round(zoom_center - tocorner).astype(int)
-    tocorner = np.array([final_size[0], -final_size[1]]) / 2
-    endpoints[2] = np.round(zoom_center - tocorner).astype(int)
-
-    steps += 1
-    cornerpoints = np.zeros([steps, 4, 2], dtype=int)
-    pixratios = np.zeros(steps)
-    for i in range(4):
-        for j in range(2):
-            cornerpoints[:, i, j] = np.round(
-                np.linspace(startpoints[i, j], endpoints[i, j], steps)
-            ).astype(int)
-
-    final_resolution = np.round(final_size * gif_resolution_to_final).astype(int)
-    images = np.zeros([steps, final_resolution[0], final_resolution[1]])
-    for i in range(steps):
-        pixratios[i] = (
-            cornerpoints[i, 1, 0] - cornerpoints[i, 0, 0]
-        ) / final_resolution[0]
-
-        roi_img = img[
-            cornerpoints[i, 0, 0] : cornerpoints[i, 1, 0],
-            cornerpoints[i, 0, 1] : cornerpoints[i, 2, 1],
-        ]
-
-        ratio = roi_img.shape[0] / final_resolution[0]  # size
-        sigma = ratio / 4
-
-        ksize = np.round(5 * sigma).astype(int)
-        if ksize % 2 == 0:
-            ksize += 1
-        roi_img = cv2.GaussianBlur(roi_img, [ksize, ksize], sigma)
-        images[i] = cv2.resize(roi_img, final_resolution[::-1], cv2.INTER_AREA)
-
-    return images, pixratios
 
 
 #%% get_angular_dist
@@ -366,7 +247,7 @@ def get_angular_dist(image, borderdist=100, centerdist=20, plotcheck=False):
 
     if image.shape[0] != image.shape[1]:
         print("Warning: image is cropped to square")
-        img = make_square(image)
+        img = img_make_square(image)
 
     fftimage = np.fft.rfft2(img)
     rffti = np.roll(fftimage, -int(fftimage.shape[0] / 2), axis=0)
@@ -434,20 +315,6 @@ def get_angular_dist(image, borderdist=100, centerdist=20, plotcheck=False):
     return angledeg, values
 
 
-#%% MIC_tile
-
-
-def MIC_tile(im, tiles=3):
-    """Minimum-Image-Convention tiling"""
-    s = np.array(im.shape)
-    new = np.zeros(s * tiles, dtype=im.dtype)
-    for i in range(tiles):
-        for j in range(tiles):
-            new[s[0] * i : s[0] * (i + 1), s[1] * j : s[1] * (j + 1)] = im
-
-    oij = tiles // 2
-    orig = (s[0] * oij, s[0] * (oij + 1)), (s[1] * oij, s[1] * (oij + 1))
-    return new, orig
 
 
 #%% take_map
@@ -535,80 +402,6 @@ def smoothbox_kernel(kernel_size):
     return sb
 
 
-#%% rebin
-def rebin(arr, new_shape):
-    """reduce the resolution of an image MxN to mxn by taking an average,
-    whereby M and N must be multiples of m and n"""
-    shape = (
-        new_shape[0],
-        arr.shape[0] // new_shape[0],
-        new_shape[1],
-        arr.shape[1] // new_shape[1],
-    )
-    return arr.reshape(shape).mean(-1).mean(1)
-
-
-#%% rotate
-
-# this function is a modified version of the original from
-# https://github.com/PyImageSearch/imutils/blob/master/imutils/convenience.py#L41
-def rotate_bound(image, angle, flag="cubic", bm=1):
-
-    (h, w) = image.shape[:2]
-    (cX, cY) = (w / 2, h / 2)
-
-    # grab the rotation matrix (applying the negative of the
-    # angle to rotate clockwise), then grab the sine and cosine
-    # (i.e., the rotation components of the matrix)
-    M = cv2.getRotationMatrix2D((cX, cY), -angle, 1.0)
-    cos = np.abs(M[0, 0])
-    sin = np.abs(M[0, 1])
-
-    # compute the new bounding dimensions of the image
-    nW = int(np.round((h * sin) + (w * cos)))
-    nH = int(np.round((h * cos) + (w * sin)))
-
-    if bm == 0:
-        bm = cv2.BORDER_CONSTANT
-    elif bm == 1:
-        bm = cv2.BORDER_REPLICATE
-
-    # adjust the rotation matrix to take into account translation
-    M[0, 2] += (nW / 2) - cX
-    M[1, 2] += (nH / 2) - cY
-
-    invRotateMatrix = cv2.invertAffineTransform(M)
-    log = [(h, w), invRotateMatrix]
-    # perform the actual rotation and return the image
-    if flag == "cubic":
-        return (
-            cv2.warpAffine(image, M, (nW, nH), flags=cv2.INTER_CUBIC, borderMode=bm),
-            log,
-        )
-    else:
-        return (
-            cv2.warpAffine(image, M, (nW, nH), flags=cv2.INTER_LINEAR, borderMode=bm),
-            log,
-        )
-
-
-#%% rotate back
-def rotate_back(image, log, flag="cubic", bm=1):
-
-    (h, w), invM = log
-
-    if bm == 0:
-        bm = cv2.BORDER_CONSTANT
-    elif bm == 1:
-        bm = cv2.BORDER_REPLICATE
-
-    if flag == "cubic":
-        return cv2.warpAffine(image, invM, (w, h), flags=cv2.INTER_CUBIC, borderMode=bm)
-    else:
-        return cv2.warpAffine(
-            image, invM, (w, h), flags=cv2.INTER_LINEAR, borderMode=bm
-        )
-
 
 #%% make Mask
 
@@ -635,136 +428,9 @@ def make_mask(rot, d=3):
     return newmask
 
 
-#%% asymmetric non maximum supppression
 
 
-def anms(img, mask, thresh_ratio=1.5, ksize=5, asympix=0, damping=5):
-    newimg = copy.deepcopy(img)
-    cimg = cv2.sepFilter2D(
-        img, cv2.CV_64F, np.ones(1), np.ones(ksize), borderType=cv2.BORDER_ISOLATED
-    )
-    rimg = cv2.sepFilter2D(
-        img,
-        cv2.CV_64F,
-        np.ones(ksize + asympix),
-        np.ones(1),
-        borderType=cv2.BORDER_ISOLATED,
-    )
-    return aysmmetric_non_maximum_suppression(
-        newimg, img, cimg, rimg, mask, thresh_ratio, ksize, asympix, damping
-    )
-
-
-@njit
-def aysmmetric_non_maximum_suppression(
-    newimg, img, cimg, rimg, mask, thresh_ratio, ksize, asympix, damping
-):
-    ioffs = ksize // 2
-    joffs = ksize // 2 + asympix // 2
-
-    for i in range(ioffs, img.shape[0] - ioffs):
-        for j in range(joffs, img.shape[1] - joffs):
-            if not mask[i, j]:
-                pass
-            elif (
-                not mask[i - ioffs, j - joffs]
-                or not mask[i + ioffs, j + joffs]
-                or not mask[i - ioffs, j + joffs]
-                or not mask[i + ioffs, j - joffs]
-            ):
-                pass
-            else:
-                v = max(cimg[i, j - joffs : j + joffs + 1])
-                h = max(rimg[i - ioffs : i + ioffs + 1, j]) * ksize / (ksize + asympix)
-
-                if h > v * thresh_ratio:
-                    newimg[i, j] = img[i, j]
-                else:
-                    newimg[i, j] = (
-                        img[i, j] / damping
-                    )  # np.min(img[i-ioffs:i+ioffs+1,j-joffs:j+joffs+1])
-    return newimg
-
-
-#%% asymmetric non maximum supppression median
-
-
-def anms_median(img, mask, thresh_ratio=1.5, ksize=5, asympix=0):
-    newimg = copy.deepcopy(img)
-    return aysmmetric_non_maximum_suppression_median(
-        newimg, img, mask, thresh_ratio, ksize, asympix
-    )
-
-
-@njit
-def aysmmetric_non_maximum_suppression_median(
-    newimg, img, mask, thresh_ratio, ksize, asympix
-):
-    ioffs = ksize // 2  # +asympix//2
-    joffs = ksize // 2 + asympix // 2
-    # newimg=img#np.zeros(img.shape)
-    for i in range(ioffs, img.shape[0] - ioffs):
-        for j in range(joffs, img.shape[1] - joffs):
-            if not mask[i, j]:
-                pass
-            elif (
-                not mask[i - ioffs, j - joffs]
-                or not mask[i + ioffs, j + joffs]
-                or not mask[i - ioffs, j + joffs]
-                or not mask[i + ioffs, j - joffs]
-            ):
-                newimg[i, j] = img[i, j]
-            else:
-                g = img[i - ioffs : i + ioffs + 1, j - joffs : j + joffs + 1]
-                v = max(np.sum(g, axis=0))  # * ksize/(ksize+asympix)
-                h = max(np.sum(g, axis=1)) * ksize / (ksize + asympix)
-                if h > v * thresh_ratio:
-                    newimg[i, j] = img[i, j]
-                else:
-                    newimg[i, j] = np.median(g)
-    return newimg
-
-
-#%% noise level determination from aysmmetric_non_maximum_suppression
-
-
-@njit
-def anms_noise(img, mask, thresh_ratio, ksize, asympix):
-    ioffs = ksize // 2  # +asympix//2
-    joffs = ksize // 2 + asympix // 2
-    npix = ksize * (ksize + asympix)
-    noisemean = []
-    noisemax = []
-    noisestd = []
-    # newimg=img#np.zeros(img.shape)
-    for i in range(ioffs, img.shape[0] - ioffs):
-        for j in range(joffs, img.shape[1] - joffs):
-            if not mask[i, j]:
-                pass
-            elif (
-                not mask[i - ioffs, j - joffs]
-                or not mask[i + ioffs, j + joffs]
-                or not mask[i - ioffs, j + joffs]
-                or not mask[i + ioffs, j - joffs]
-            ):
-                pass
-                #    newimg[i,j]=img[i,j]
-            else:
-                g = img[i - ioffs : i + ioffs + 1, j - joffs : j + joffs + 1]
-                v = max(np.sum(g, axis=0))  # * ksize/(ksize+asympix)
-                h = max(np.sum(g, axis=1))
-                if h * ksize / (ksize + asympix) > v * thresh_ratio:
-                    pass
-                    # newimg[i,j]=img[i,j]
-                else:
-                    ave = (v + h) / npix
-                    g = (g - ave) ** 2
-                    noisemean.append(ave)
-                    noisemax.append(np.max(g))
-                    std = np.sum(g)
-                    noisestd.append(std)
-                    # newimg[i,j]=np.min(g)
-    return noisemax, noisemean, noisestd
+#%%
 
 
 def determine_thresh(image):
@@ -777,11 +443,3 @@ def determine_thresh(image):
     return thresh
 
 
-def determine_noise_threshold(img, mask, thresh_ratio, ksize, asympix):
-    npix = ksize * (ksize + asympix)
-
-    noisemax, noisemean, noisestd = anms_noise(img, mask, thresh_ratio, ksize, asympix)
-    nma = np.array(noisemax)
-    nme = np.array(noisemean)
-    nms = np.array(noisestd)
-    return np.sqrt(nma), nme, np.sqrt(nms / npix)

@@ -20,5 +20,7 @@ setup(name='image analysis',
             'opencv-python',
             'scipy',
             'numba',
-            'h5py'
+            'h5py',
+            'scikit-image',
+            'imageio'
                ])

@@ -1,10 +1,9 @@
 import numpy as np
-import cv2
 from skimage.draw import line_aa
 from numba import njit
 import matplotlib.pyplot as plt
 import math
-
+from .general_util import intersect,lineIntersection
 
 #%% get_connected_points
 def get_connected_points(srb):
@@ -73,37 +72,9 @@ def check_checkmap(conpoi, conlen, checkmap):
     return concheck / np.array(conlen)
 
 
-#%% lineIntersection
-def lineIntersection(a, b, c, d):
-    # Line AB represented as a1x + b1y = c1
-    a1 = b[1] - a[1]
-    b1 = a[0] - b[0]
-    c1 = a1 * (a[0]) + b1 * (a[1])
-
-    # Line CD represented as a2x + b2y = c2
-    a2 = d[1] - c[1]
-    b2 = c[0] - d[0]
-    c2 = a2 * (c[0]) + b2 * (c[1])
-
-    determinant = a1 * b2 - a2 * b1
-
-    x = (b2 * c1 - b1 * c2) / determinant
-    y = (a1 * c2 - a2 * c1) / determinant
-    return (x, y)
-
-
-def ccw(A, B, C):
-    return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
-
-
-# Return true if line segments AB and CD intersect
-def intersect(A, B, C, D):
-    return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
 
 
 #%% calc_m_n_t
-
-
 @njit
 def calc_m_n_t(points, singlemap):
     xstartindex = np.argmin(points[:, 1])
@@ -530,67 +501,7 @@ class line_analysis_object:
 
         return sortout
 
-    # #%%
-    # def eliminate_side_maxima_image(self,shiftrange=2,tol=1,line='dark',test=False):
-    #     tms=self.tms
-    #     conpois=self.conpois
-    #     image=self.image
 
-    #     sortoutids=[]
-    #     sortout=[]
-
-    #     for i in range(len(conpois)):
-    #         sortout.append([])
-    #         sortoutids.append([])
-
-    #         #image=checkmaps[i]
-    #         if tms[i]>1:
-    #             for j in range(len(conpois[i])):
-
-    #                 #a=np.max(conpois[i][j][:,1])
-    #                 #b=np.min(conpois[i][j][:,1])
-    #                 #if a+shiftrange >= image.shape[1] or b-shiftrange<0:
-    #                 #    pass
-    #                 #else:
-    #                 check=getcheck1(shiftrange,conpois[i][j],image)
-
-    #                 icheck=np.argmax(check)
-    #                 checkval=np.max(check)
-    #                 #print(icheck)
-    #                 if icheck < shiftrange-tol or icheck > shiftrange+tol:
-
-    #                     #checkmedian=np.median(check)
-    #                     #mad=np.median(np.abs(check-checkmedian))
-    #                     #if check[shiftrange] < checkmedian+mad_threshold*mad:
-    #                     sortout[-1].append(conpois[i][j])
-    #                     sortoutids[-1].append(j)
-
-    #         else:
-    #             for j in range(len(conpois[i])):
-
-    #                 #a=np.max(conpois[i][j][:,0])
-    #                 #b=np.min(conpois[i][j][:,0])
-    #                 #if a+shiftrange >= image.shape[0] or b-shiftrange<0:
-    #                 #    pass
-    #                 #else:
-    #                 check=getcheck0(shiftrange,conpois[i][j],image)
-    #                 icheck=np.argmax(check)
-    #                 #print(icheck)
-
-    #                 if icheck < shiftrange-tol or icheck > shiftrange+tol:
-
-    #                     #checkmedian=np.median(check)
-    #                     #mad=np.median(np.abs(check-checkmedian))
-    #                     #if check[shiftrange] < checkmedian+mad_threshold*mad:
-    #                     sortout[-1].append(conpois[i][j])
-    #                     sortoutids[-1].append(j)
-
-    #         print(len(sortout[-1]))
-
-    #     if not test:
-    #         self.sort_ids_out(sortoutids)
-
-    #     return sortout
 
     #%% eliminate_side_maxima
     def eliminate_side_maxima(self, mad_threshold=2, shiftrange=10, test=False):
