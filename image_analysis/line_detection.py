@@ -11,8 +11,6 @@ from numba import njit
 
 
 
-
-
 #%% enhance_lines_partial
 def line_enhance_partial(
     trot, newmask, angle, ksize=None, dist=1, iterations=2, line="dark"
@@ -48,7 +46,7 @@ def line_enhance_partial(
 
         res *= tres
 
-    return res ** (1 / (iterations + 1))  # *newmask#,trot/np.max(trot)*255
+    return res ** (1 / (iterations + 1))  
 
 
 #%% Enhance Lines
@@ -96,7 +94,7 @@ def line_enhance(
         res ** (1 / (iterations + 1)) * newmask,
         newmask,
         log,
-    )  # ,trot/np.max(trot)*255
+    )  
 
 
 #%% Enhance Lines2
@@ -138,7 +136,6 @@ def line_enhance2(
 
         tres2 = np.zeros([len(dist), srot.shape[0], srot.shape[1]])
         for j in range(len(dist)):
-            # tres=np.zeros(srot.shape)
             tres2[j, : -dist[j], :] -= t2[dist[j] :, :] * (srot[dist[j] :, :] - middle)
             tres2[j, dist[j] :, :] += t1[: -dist[j], :] * (srot[: -dist[j], :] - middle)
         tres = np.sum(tres2, axis=0)
@@ -152,9 +149,6 @@ def line_enhance2(
     )
 
 
-
-
-
 #%% obtain_maps
 def obtain_maps(qkeys, qline_images, qsum_images, qcheck_images, lowhigh):
     xmax = lowhigh[qkeys[-1]][0][0] + qsum_images[qkeys[-1]].shape[0]
@@ -165,7 +159,7 @@ def obtain_maps(qkeys, qline_images, qsum_images, qcheck_images, lowhigh):
     fullmap = np.zeros([xmax, ymax])
     singlemaps = np.zeros([nangles, xmax, ymax])
     checkmaps = np.zeros([nangles, xmax, ymax])
-    # print(xmax,ymax)
+   
     for i in qkeys:
         xmin = lowhigh[i][0][0]
         ymin = lowhigh[i][1][0]
@@ -180,13 +174,11 @@ def obtain_maps(qkeys, qline_images, qsum_images, qcheck_images, lowhigh):
                 qline_images[i][j] > 10
             ) * 1.0
 
-    # singlem=copy.deepcopy(singlemaps)
 
     singlereturn = (singlemaps > 0) * 1
 
     singlemaps[singlemaps == 0] = 1.0
-    # for j in range(2,6):
-    #    checkmaps[singlemaps==j]=checkmaps[singlemaps==j]/j
+
     for i in range(len(checkmaps)):
         checkmaps[i] -= np.min(checkmaps[i])
 
@@ -255,7 +247,6 @@ def line_check_angle_s(lines, rotangle, deg_tol=1.5):
 
 #%% process
 
-# smoothsize=35
 def line_process(
     images,
     rotangles,
@@ -271,8 +262,7 @@ def line_process(
     iterations=2,
     anms_threshold=2,
     dist=1,
-    houghdist=1,
-    powerlaw=1,
+    houghdist=1,#powerlaw=1,
 ):
     qkeys = []
     qkeys = list(images.keys())
@@ -306,14 +296,10 @@ def line_process(
                 damping=damp,
             )
             clean = img_noise_line_suppression(nms, ksize_erodil)
-            clean = clean / np.max(clean) * 255
-            # clean[clean<1]=1
-            clean = clean.astype(np.double)
-            clean = clean**powerlaw
+            #clean = clean / np.max(clean) * 255
+            #clean = clean.astype(np.double)
+            #clean = clean**powerlaw
             clean = img_to_uint8(clean)
-            # clean -= np.min(clean)
-            # clean= clean/np.max(clean) *255
-            # clean=clean.astype(np.uint8)
 
             new = clean[newmask > 0]
 
@@ -321,10 +307,9 @@ def line_process(
                 new.astype(np.uint8), 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
             )
             thresh = max(thresh, 255 / damp)
-            # print(thresh)
+
             srb = (clean > thresh).astype(np.uint8)
 
-            # lines_list =[]
             lines = cv2.HoughLinesP(
                 srb,  # Input edge image
                 houghdist,  # 0.5 Distance resolution in pixels
@@ -384,8 +369,6 @@ def line_process_partial(
         check_images = []
         image = images[qkeys[m]]
 
-        # print(str(m+1)+" / " +str(len(qkeys)))
-        # print(qkeys[m])
         for k in range(len(rotangles)):
 
             rot, log = img_rotate_bound(image, rotangles[k])
@@ -490,9 +473,6 @@ def line_process_partial(
 
             # clean=clean**powerlaw
             clean = img_to_uint8(clean)
-            # clean -= np.min(clean)
-            # clean= clean/np.max(clean) *255
-            # clean=clean.astype(np.uint8)
 
             check_images.append(img_rotate_back(clean, log))
 
@@ -504,7 +484,7 @@ def line_process_partial(
     nangles = len(qcheck_images[qkeys[0]])
 
     checkmaps = np.zeros([nangles, xmax, ymax])
-    # print(xmax,ymax)
+
     for i in qkeys:
         xmin = lowhigh[i][0][0]
         ymin = lowhigh[i][1][0]
@@ -520,12 +500,11 @@ def line_process_partial(
 
 #%% process2
 
-# smoothsize=35
 def line_process2(
-    images,
+    image,
     rotangles,
     ksize_erodil=15,
-    ksize_anms=15,
+    ksize_anms=15,#19
     damp=10,
     smoothsize=1,
     Hthreshold=50,
@@ -538,56 +517,38 @@ def line_process2(
     dist=1,
     houghdist=1,
 ):
-    qkeys = []
-    qkeys = list(images.keys())
-    qsum_images = {}
-    qline_images = {}
-    qcheck_images = {}
 
-    for m in range(len(qkeys)):
-        line_images = []
-        check_images = []
-        image = images[qkeys[m]]
-        sum_image = np.zeros(image.shape)
+    check_images = []
 
-        print(str(m + 1) + " / " + str(len(qkeys)))
-        print(qkeys[m])
-        for k in range(len(rotangles)):
-            tres, newmask, log, rotimg = line_enhance2(
-                image,
-                rotangles[k],
-                iterations=iterations,
-                ksize=ksize,
-                line=line,
-                dist=dist,
-            )
+    for k in range(len(rotangles)):
+        tres, newmask, log, rotimg = line_enhance2(
+            image,
+            rotangles[k],
+            iterations=iterations,
+            ksize=ksize,
+            line=line,
+            dist=dist,
+        )
 
-            nms = img_anms(
-                tres,
-                newmask,
-                thresh_ratio=anms_threshold,
-                ksize=ksize_anms,
-                damping=damp,
-            )  # ksize=19)
+        nms = img_anms(
+            tres,
+            newmask,
+            thresh_ratio=anms_threshold,
+            ksize=ksize_anms,
+            damping=damp,
+        )  
 
-            clean = img_noise_line_suppression(nms, ksize_erodil)
+        clean = img_noise_line_suppression(nms, ksize_erodil)
+        clean = clean / np.max(clean) * 255
 
-            clean = clean / np.max(clean) * 255
+        nclean = np.zeros(clean.shape, dtype=np.double)
+        nclean += clean
+        nclean += rotimg
 
-            nclean = np.zeros(clean.shape, dtype=np.double)
-            nclean += clean
-            nclean += rotimg
+        nclean = img_to_uint8(nclean)
 
-            nclean -= np.min(nclean)
-            nclean = (nclean / np.max(nclean) * 255).astype(np.uint8)
 
-            new = nclean[newmask > 0]
+        check_images.append(img_rotate_back(nclean, log))
 
-            check_images.append(img_rotate_back(nclean, log))
-            line_images.append(np.zeros(check_images[-1].shape))
 
-        qcheck_images[qkeys[m]] = check_images
-        qsum_images[qkeys[m]] = sum_image > 10
-        qline_images[qkeys[m]] = line_images
-
-    return qkeys, qline_images, qcheck_images, qsum_images
+    return check_images

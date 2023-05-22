@@ -4,6 +4,12 @@ Created on Mon May  8 20:56:03 2023
 
 @author: kernke
 """
+import numpy as np
+from .image_processing import img_rotate_bound
+from .general_util import make_mask
+import matplotlib.pyplot as plt
+import cv2
+
 
 #%% optimal rotation /deprecated
 # deprecated
@@ -22,8 +28,8 @@ def optimal_rotation(image_roi, angle, thresh=5, minlength=50, line="dark", show
     for k in range(5):
         snr = np.zeros(7)
         for i in range(7):
-            rot, log = rotate_bound(image_roi, angle + pmangle[i])
-            drot, log = rotate_bound(dummy, angle + pmangle[i], bm=0)
+            rot, log = img_rotate_bound(image_roi, angle + pmangle[i])
+            drot, log = img_rotate_bound(dummy, angle + pmangle[i], bm=0)
             mask = drot > 0.1
             # rot -= pr/5
 
@@ -43,8 +49,8 @@ def optimal_rotation(image_roi, angle, thresh=5, minlength=50, line="dark", show
     res = np.round(angle, 2)
 
     if show:
-        rot, log = rotate_bound(image_roi, res)
-        drot, log = rotate_bound(dummy, res, bm=0)
+        rot, log = img_rotate_bound(image_roi, res)
+        drot, log = img_rotate_bound(dummy, res, bm=0)
         mask = drot > 0.1
         # obtain_snr(rot, mask, line,True,minlength)
         plt.imshow(rot * mask)
@@ -91,60 +97,6 @@ def obtain_snr(image, mask, line, show, minlength):
     return np.max(val) / vstd
 
 
-#%% processing
-def processing(
-    image, angles, rois, filterheight, asympix=20, thresh_ratio=1.5, smoothing=11
-):
-
-    res = []
-
-    for i in range(len(angles)):
-        dark, nmask, log = enhance_lines(image, angles[i], line="dark")
-        bright, nmask1, log = enhance_lines(image, angles[i], line="bright")
-        smoothkernel = smoothbox_kernel([1, smoothing])[0]
-        dres = cv2.sepFilter2D(dark, cv2.CV_64F, smoothkernel, np.ones(1))
-        bres = cv2.sepFilter2D(bright, cv2.CV_64F, smoothkernel, np.ones(1))
-
-        dres = anms(
-            dres, nmask, thresh_ratio=thresh_ratio, ksize=filterheight, asympix=asympix
-        )
-        bres = anms(
-            bres, nmask, thresh_ratio=thresh_ratio, ksize=filterheight, asympix=asympix
-        )
-
-        drows = np.sum(dres, axis=1)
-        brows = np.sum(bres, axis=1)
-
-        dpos = peak_com(drows, filterheight, rois[i])
-        bpos = peak_com(brows, filterheight, rois[i])
-
-        delta = int(np.round((dpos - bpos) / 2) * 2)
-        nres = np.zeros(dres.shape)
-        if delta < 0:
-            delta = -delta
-            nres[: -delta // 2] += bres[delta // 2 :]
-            nres[delta // 2 :] += dres[: -delta // 2]
-            nres[delta // 2 : -delta // 2] /= 2.0
-
-        elif delta == 0:
-            nres += bres
-            nres += dres
-            nres /= 2.0
-
-        else:
-            nres[: -delta // 2] += dres[delta // 2 :]
-            nres[delta // 2 :] += bres[: -delta // 2]
-            nres[delta // 2 : -delta // 2] /= 2.0
-
-        res1 = rotate_back(nres, log)
-        # rotate_bound(nres,-angles[i],flag2='back')
-        offset = np.zeros(2, dtype=int)
-        offset = (np.array(res1.shape) - np.array(image.shape)) / 2
-        offset = offset.astype(int)
-        gres = res1[offset[0] : -offset[0], offset[1] : -offset[1]]
-
-        res.append(gres)
-    return res[0] + res[1]
 
 #%% enhance_lines_prototype
 def enhance_lines_prototype(
@@ -152,8 +104,8 @@ def enhance_lines_prototype(
 ):
 
     dummy = np.ones(image.shape)
-    rot, log = rotate_bound(image, angle)
-    drot, log = rotate_bound(dummy, angle, bm=0)
+    rot, log = img_rotate_bound(image, angle)
+    drot, log = img_rotate_bound(dummy, angle, bm=0)
     newmask = make_mask(drot, 2)
 
     trot = np.clip(rot, np.min(image), np.max(image))
@@ -188,64 +140,291 @@ def enhance_lines_prototype(
     return tres * newmask, newmask, log
 
 
-#%%
-    # def eliminate_side_maxima_image(self,shiftrange=2,tol=1,line='dark',test=False):
-    #     tms=self.tms
-    #     conpois=self.conpois
-    #     image=self.image
+#%% process2
+"""
+# smoothsize=35
+def line_process2(
+    images,
+    rotangles,
+    lowhigh,
+    ksize_erodil=15,
+    ksize_anms=15,#19
+    damp=10,
+    smoothsize=1,
+    Hthreshold=50,
+    Hminlength=5,
+    Hmaxgap=50,
+    line="dark",
+    ksize=None,
+    iterations=2,
+    anms_threshold=2,
+    dist=1,
+    houghdist=1,
+):
+    qkeys = []
+    qkeys = list(images.keys())
 
-    #     sortoutids=[]
-    #     sortout=[]
+    qcheck_images = {}
 
-    #     for i in range(len(conpois)):
-    #         sortout.append([])
-    #         sortoutids.append([])
+    for m in range(len(qkeys)):
+        line_images = []
+        check_images = []
+        image = images[qkeys[m]]
 
-    #         #image=checkmaps[i]
-    #         if tms[i]>1:
-    #             for j in range(len(conpois[i])):
+        print(str(m + 1) + " / " + str(len(qkeys)))
+        print(qkeys[m])
+        for k in range(len(rotangles)):
+            tres, newmask, log, rotimg = line_enhance2(
+                image,
+                rotangles[k],
+                iterations=iterations,
+                ksize=ksize,
+                line=line,
+                dist=dist,
+            )
 
-    #                 #a=np.max(conpois[i][j][:,1])
-    #                 #b=np.min(conpois[i][j][:,1])
-    #                 #if a+shiftrange >= image.shape[1] or b-shiftrange<0:
-    #                 #    pass
-    #                 #else:
-    #                 check=getcheck1(shiftrange,conpois[i][j],image)
+            nms = img_anms(
+                tres,
+                newmask,
+                thresh_ratio=anms_threshold,
+                ksize=ksize_anms,
+                damping=damp,
+            )  
 
-    #                 icheck=np.argmax(check)
-    #                 checkval=np.max(check)
-    #                 #print(icheck)
-    #                 if icheck < shiftrange-tol or icheck > shiftrange+tol:
+            clean = img_noise_line_suppression(nms, ksize_erodil)
 
-    #                     #checkmedian=np.median(check)
-    #                     #mad=np.median(np.abs(check-checkmedian))
-    #                     #if check[shiftrange] < checkmedian+mad_threshold*mad:
-    #                     sortout[-1].append(conpois[i][j])
-    #                     sortoutids[-1].append(j)
+            clean = clean / np.max(clean) * 255
 
-    #         else:
-    #             for j in range(len(conpois[i])):
+            nclean = np.zeros(clean.shape, dtype=np.double)
+            nclean += clean
+            nclean += rotimg
 
-    #                 #a=np.max(conpois[i][j][:,0])
-    #                 #b=np.min(conpois[i][j][:,0])
-    #                 #if a+shiftrange >= image.shape[0] or b-shiftrange<0:
-    #                 #    pass
-    #                 #else:
-    #                 check=getcheck0(shiftrange,conpois[i][j],image)
-    #                 icheck=np.argmax(check)
-    #                 #print(icheck)
+            nclean = img_to_uint8(nclean)
 
-    #                 if icheck < shiftrange-tol or icheck > shiftrange+tol:
+            #new = nclean[newmask > 0]
 
-    #                     #checkmedian=np.median(check)
-    #                     #mad=np.median(np.abs(check-checkmedian))
-    #                     #if check[shiftrange] < checkmedian+mad_threshold*mad:
-    #                     sortout[-1].append(conpois[i][j])
-    #                     sortoutids[-1].append(j)
+            check_images.append(img_rotate_back(nclean, log))
+            #line_images.append(np.zeros(check_images[-1].shape))
 
-    #         print(len(sortout[-1]))
+        qcheck_images[qkeys[m]] = check_images
+        
+        xmax = lowhigh[qkeys[-1]][0][0] + qcheck_images[qkeys[-1]][0].shape[0]
+        ymax = lowhigh[qkeys[-1]][1][0] + qcheck_images[qkeys[-1]][0].shape[1]
 
-    #     if not test:
-    #         self.sort_ids_out(sortoutids)
+        nangles = len(qcheck_images[qkeys[0]])
 
-    #     return sortout
+        checkmaps = np.zeros([nangles, xmax, ymax])
+        
+        for i in qkeys:
+            xmin = lowhigh[i][0][0]
+            ymin = lowhigh[i][1][0]
+            ishape = qcheck_images[i][0].shape
+
+            for j in range(nangles):
+                checkmaps[
+                    j, xmin : xmin + ishape[0], ymin : ymin + ishape[1]
+                ] += qcheck_images[i][j]
+        
+
+
+    return check_images
+"""
+
+#%% eliminate_side_maxima_image
+"""
+    def eliminate_side_maxima_image(self,shiftrange=2,tol=1,line='dark',test=False):
+        tms=self.tms
+        conpois=self.conpois
+        image=self.image
+
+        sortoutids=[]
+        sortout=[]
+
+        for i in range(len(conpois)):
+            sortout.append([])
+            sortoutids.append([])
+
+            #image=checkmaps[i]
+            if tms[i]>1:
+                for j in range(len(conpois[i])):
+
+                    #a=np.max(conpois[i][j][:,1])
+                    #b=np.min(conpois[i][j][:,1])
+                    #if a+shiftrange >= image.shape[1] or b-shiftrange<0:
+                    #    pass
+                    #else:
+                    check=getcheck1(shiftrange,conpois[i][j],image)
+
+                    icheck=np.argmax(check)
+                    checkval=np.max(check)
+                    #print(icheck)
+                    if icheck < shiftrange-tol or icheck > shiftrange+tol:
+
+                        #checkmedian=np.median(check)
+                        #mad=np.median(np.abs(check-checkmedian))
+                        #if check[shiftrange] < checkmedian+mad_threshold*mad:
+                        sortout[-1].append(conpois[i][j])
+                        sortoutids[-1].append(j)
+
+            else:
+                for j in range(len(conpois[i])):
+
+                    #a=np.max(conpois[i][j][:,0])
+                    #b=np.min(conpois[i][j][:,0])
+                    #if a+shiftrange >= image.shape[0] or b-shiftrange<0:
+                    #    pass
+                    #else:
+                    check=getcheck0(shiftrange,conpois[i][j],image)
+                    icheck=np.argmax(check)
+                    #print(icheck)
+
+                    if icheck < shiftrange-tol or icheck > shiftrange+tol:
+
+                        #checkmedian=np.median(check)
+                        #mad=np.median(np.abs(check-checkmedian))
+                        #if check[shiftrange] < checkmedian+mad_threshold*mad:
+                        sortout[-1].append(conpois[i][j])
+                        sortoutids[-1].append(j)
+
+            print(len(sortout[-1]))
+
+        if not test:
+            self.sort_ids_out(sortoutids)
+
+        return sortout
+    
+"""   
+    
+    #%% make_interaction_dictionnary
+"""
+    def make_interaction_dictionnary(self):
+        
+        ext_slists = self.extended_slists
+        shr_slists = self.shrinked_slists
+        ext_elists = self.extended_elists
+        shr_elists = self.shrinked_elists
+        
+        check_ext_shr_intersection(ext_slists,shr_slists,ext_elists,shr_elists)
+        
+        
+        crosslines = self.crosslines
+        crosslineset = set(map(tuple, crosslines))
+        s1 = self.all
+        s2 = self.cross_and_block
+        s3 = self.crossings
+
+        slists = self.extended_slists
+        elists = self.extended_elists
+
+        blockings = s2.difference(s3)
+        corners = s1.difference(s2)
+        gothroughs = s3
+
+
+        corners_dic = {}
+        gothroughs_dic = {}
+        blockings_dic = {}
+
+        for i in corners:
+            (i1, i2), (i3, i4) = i
+            a = slists[i1][i2]
+            b = elists[i1][i2]
+            c = slists[i3][i4]
+            d = elists[i3][i4]
+            corners_dic[i] = lineIntersection(a, b, c, d)
+
+        for i in blockings:
+            (i1, i2), (i3, i4) = i
+            a = slists[i1][i2]
+            b = elists[i1][i2]
+            c = slists[i3][i4]
+            d = elists[i3][i4]
+            blockings_dic[i] = lineIntersection(a, b, c, d)
+
+        for i in gothroughs:
+            (i1, i2), (i3, i4) = i
+            a = slists[i1][i2]
+            b = elists[i1][i2]
+            c = slists[i3][i4]
+            d = elists[i3][i4]
+            gothroughs_dic[i] = lineIntersection(a, b, c, d)
+
+        return corners_dic, blockings_dic, gothroughs_dic
+"""
+    #%% get_line_lengths
+"""    
+    def _get_line_lengths(self):
+        slists = self.slists
+        elists = self.elists
+
+        lengths = []
+
+        for i in range(len(slists)):
+            lengths.append([])
+            for j in range(len(slists[i])):
+                d = slists[i][j] - elists[i][j]
+                lengths[-1].append(math.sqrt(np.sum(d * d)))
+
+        self.lengths = lengths
+        _add_attr("lengths", self.line_vars)
+
+"""
+
+
+    #%% eliminate_side_maxima
+"""    
+    def eliminate_side_maxima(self, mad_threshold=2, shiftrange=10, test=False):
+        tms = self.slope_groups
+        conpois = self.conpois
+        checkmaps = self.checkmaps
+
+        sortoutids = []
+        sortout = []
+
+        for i in range(len(conpois)):
+            sortout.append([])
+            sortoutids.append([])
+
+            image = checkmaps[i]
+            if tms[i] > 1:
+                for j in range(len(conpois[i])):
+
+                    a = np.max(conpois[i][j][:, 1])
+                    b = np.min(conpois[i][j][:, 1])
+                    if a + shiftrange >= image.shape[1] or b - shiftrange < 0:
+                        pass
+                    else:
+                        check = _getcheck1(shiftrange, conpois[i][j], image)
+                        if np.argmax(check) != shiftrange:
+
+                            checkmedian = np.median(check)
+                            mad = np.median(np.abs(check - checkmedian))
+                            if check[shiftrange] < checkmedian + mad_threshold * mad:
+                                sortout[-1].append(conpois[i][j])
+                                sortoutids[-1].append(j)
+
+            else:
+                for j in range(len(conpois[i])):
+
+                    a = np.max(conpois[i][j][:, 0])
+                    b = np.min(conpois[i][j][:, 0])
+                    if a + shiftrange >= image.shape[0] or b - shiftrange < 0:
+                        pass
+                    else:
+                        check = _getcheck0(shiftrange, conpois[i][j], image)
+                        if np.argmax(check) != shiftrange:
+
+                            checkmedian = np.median(check)
+                            mad = np.median(np.abs(check - checkmedian))
+                            if check[shiftrange] < checkmedian + mad_threshold * mad:
+                                sortout[-1].append(conpois[i][j])
+                                sortoutids[-1].append(j)
+
+            print(len(sortout[-1]))
+
+        if not test:
+            self.sort_ids_out(sortoutids)
+
+        return sortout
+
+"""

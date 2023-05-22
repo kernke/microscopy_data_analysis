@@ -91,7 +91,7 @@ def vis_zoom(img, zoom_center, final_height, steps, gif_resolution_to_final=1):
     return images, pixratios
 
 #%%  plot_sortout
-def vis_plot_sortout(image, sortout, legend=True, alpha=0.5, markersize=0.5):
+def vis_plot_line_ids(image, sortout, legend=True, alpha=0.5, markersize=0.5):
     plt.imshow(image, cmap="gray")
     colors = ["b", "r", "g", "c", "m", "y"]
     for j in range(len(sortout)):

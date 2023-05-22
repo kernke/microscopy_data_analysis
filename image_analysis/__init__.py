@@ -10,3 +10,4 @@ from .line_analysis import *
 from .image_aligning import *
 from .image_processing import *
 from .visualisation import *
+from .deprecated import *

@@ -14,7 +14,18 @@ from skimage.draw import line_aa
 import matplotlib.pyplot as plt
 
 from .image_processing import img_make_square
+import os
 
+#%% get_files_of_format
+def get_files_of_format(path,ending):
+    files = os.listdir(path)
+    desired_format=ending
+    pathlist=[]
+
+    for i in range(len(files)):
+        if files[i][-len(ending):] == desired_format:
+            pathlist.append(path+files[i])
+    return pathlist
 
 
 #%% folder_file
@@ -57,6 +68,18 @@ def rfft_circ_mask(imshape, mask_radius=680, mask_sigma=50):
     halfrolledmask = rolledmask[:, : rolledmask.shape[1] // 2 + 1]
     return halfrolledmask
 
+def fft_circ_mask(imshape, mask_radius=680, mask_sigma=50):
+    kernel_size = 7 * mask_sigma
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    mask = make_circular_mask(
+        (imshape[0] - 1) / 2, (imshape[1] - 1) / 2, mask_radius, np.zeros(imshape)
+    )
+    maskb = cv2.GaussianBlur(
+        mask.astype(np.double), [kernel_size, kernel_size], mask_sigma
+    )
+
+    return maskb
 
 
 #%% peak_com
@@ -248,6 +271,8 @@ def get_angular_dist(image, borderdist=100, centerdist=20, plotcheck=False):
     if image.shape[0] != image.shape[1]:
         print("Warning: image is cropped to square")
         img = img_make_square(image)
+    else:
+        img=image
 
     fftimage = np.fft.rfft2(img)
     rffti = np.roll(fftimage, -int(fftimage.shape[0] / 2), axis=0)

@@ -9,7 +9,7 @@ from datetime import datetime
 from .general_util import folder_file,assure_multiple,make_mask,take_map
 from .image_processing import img_rotate_bound,img_morphLaplace,img_to_uint8
 from .image_aligning import align_images,align_image_fast1
-from .line_detection import line_process_partial,line_check_angle_s
+from .line_detection import line_process_partial,line_check_angle_s,line_process2
 import numpy as np
 import cv2
 import time
@@ -34,7 +34,7 @@ def h5_merge_files(newh5, *h5files):
                     hf.copy(hf[j], res, groupname[:-3] + "/" + j)
                     
                     
-
+#%% get_keys
 
 def h5_get_keys(path_to_data, printing=True):
     with h5py.File(path_to_data, "r") as hf:
@@ -58,7 +58,7 @@ def h5_get_keys(path_to_data, printing=True):
 
     return skeylist, titles
 
-
+#%% widths_and_relative_times
 def h5_widths_and_relative_times(
     phi0, path_to_data, startnums, skeylist, titles, loopscans=True, orig_width=2560
 ):
@@ -94,7 +94,7 @@ def h5_widths_and_relative_times(
 
     return newwidths, alltimes, numbers
 
-
+#%% temp rois
 def h5_make_temp_rois(numbers, alltimes, startnums):
 
     counter = 1
@@ -116,14 +116,102 @@ def h5_make_temp_rois(numbers, alltimes, startnums):
 
     return tpicnums, temporder
 
+#%% go_over_data vis
+
+
+def h5_go_over_data_vis(
+    newh5, oldh5, rotangles, tempnames, params, roi=None, no_output=False, timed=False
+):
+    rotangles, tempnames = assure_multiple(rotangles, tempnames)
+    
+    (
+        anms_threshold,
+        ksize_anms,
+        ksize_erodil,
+        line,
+        kernel,
+    ) = params
+
+    if roi is None:
+        testindex = 0
+    else:
+        testindex = roi[0]
+
+    with h5py.File(newh5, "w") as res, h5py.File(oldh5, "r") as hf:
+
+        imshape = hf[tempnames[0] + "/imgs"][testindex].shape
+
+
+        for j in range(len(tempnames)):
+
+            print(tempnames[j])
+            print("________________________________")
+            if timed:
+                time_now = time.time()
+
+            times = hf[tempnames[j] + "/time"][()]
+
+            if roi is None:
+                iroi = np.arange(len(times))
+            else:
+                iroi = roi
+                times=times[iroi]
+
+            time0 = times[0]
+
+            for ccounter in range(len(rotangles)):
+                name = "/check" + str(ccounter)
+                res.create_dataset(
+                    tempnames[j] + name,
+                    shape=[len(iroi), imshape[0], imshape[1]],
+                    dtype=np.uint8,
+                    chunks=(1, imshape[0], imshape[1]),
+                    compression="gzip",
+                    compression_opts=2,
+                )
+            res.create_dataset(tempnames[j] + "/time", shape=(len(iroi)), dtype="f")
+
+            for i in iroi:
+                print(i)
+                if timed:
+                    print(time.time() - time_now)
+                img = hf[tempnames[j] + "/imgs"][i]
+
+                if no_output:
+                    checkmaps = np.ones([len(rotangles), imshape[0], imshape[1]])
+                else:
+
+                    lapl = img_morphLaplace(img, kernel)
+
+                    summed = np.zeros(lapl.shape, dtype=np.double)
+                    summed += 255 - lapl
+                    summed += img
+                    copt = img_to_uint8(summed)
+
+                    checkmaps = line_process2(
+                        copt,
+                        rotangles,
+                        Hthreshold=35,
+                        line=line,
+                        anms_threshold=anms_threshold,
+                        ksize_anms=ksize_anms,
+                        ksize_erodil=ksize_erodil
+                    )
+
+                res[tempnames[j] + "/time"][i] = times[i] - time0
+                for ccounter in range(len(rotangles)):
+                    name = "/check" + str(ccounter)
+                    cm = checkmaps[ccounter] / np.max(checkmaps[ccounter]) * 255
+                    res[tempnames[j] + name][i] = cm.astype(np.uint8)
+    return checkmaps
 
 #%% go_over_data
-a = 3
 
 def h5_go_over_data(
     newh5, oldh5, rotangles, tempnames, params, roi=None, no_output=False, timed=False
 ):
     rotangles, tempnames = assure_multiple(rotangles, tempnames)
+    
     (
         size,
         overlap,
@@ -152,22 +240,23 @@ def h5_go_over_data(
 
         for j in range(len(tempnames)):
 
-            print(j)
+            print(tempnames[j])
             print("________________________________")
             if timed:
                 time_now = time.time()
 
-            times = hf[tempnames[j] + "/times"][()]
+            times = hf[tempnames[j] + "/time"][()]
 
             if roi is None:
                 iroi = np.arange(len(times))
             else:
                 iroi = roi
+                times=times[iroi]
 
             time0 = times[0]
 
             for ccounter in range(len(rotangles)):
-                name = "/check" + str(ccounter) + "_"
+                name = "/check" + str(ccounter)
                 res.create_dataset(
                     tempnames[j] + name,
                     shape=[len(iroi), imshape[0], imshape[1]],
@@ -176,7 +265,7 @@ def h5_go_over_data(
                     compression="gzip",
                     compression_opts=2,
                 )
-            res.create_dataset(tempnames[j] + "/times", shape=(len(iroi)), dtype="f")
+            res.create_dataset(tempnames[j] + "/time", shape=(len(iroi)), dtype="f")
 
             for i in iroi:
                 print(i)
@@ -208,9 +297,9 @@ def h5_go_over_data(
                         db_dist=db_dist,
                     )
 
-                res[tempnames[j] + "/times"][i] = times[i] - time0
+                res[tempnames[j] + "/time"][i] = times[i] - time0
                 for ccounter in range(len(rotangles)):
-                    name = "/check" + str(ccounter) + "_"
+                    name = "/check" + str(ccounter)
                     cm = checkmaps[ccounter] / np.max(checkmaps[ccounter]) * 255
                     res[tempnames[j] + name][i] = cm.astype(np.uint8)
     return checkmaps
@@ -249,17 +338,21 @@ def h5_align_data(
             print(j)
             print("________________________________")
 
-            times = hf[tempnames[j] + "/times"][()]
+            times = hf[tempnames[j] + "/time"][()]
+            res[tempnames[j] + "/time"] = times
+
+
 
             if roi is None:
                 iroi = np.arange(len(times))
             else:
                 iroi = roi
+                times = times[iroi]
 
             cdi = 0
 
             for ccounter in range(len(rotangles)):
-                name = "/check" + str(ccounter) + "_"
+                name = "/check" + str(ccounter)
                 res.create_dataset(
                     tempnames[j] + name,
                     shape=[len(iroi), imshape[0], imshape[1]],
@@ -270,7 +363,7 @@ def h5_align_data(
                 )
 
             res.create_dataset(
-                "ref_" + tempnames[j],
+                tempnames[j]+"/ref",
                 shape=[len(iroi), imshape[0], imshape[1]],
                 dtype=np.uint8,
                 chunks=(1, imshape[0], imshape[1]),
@@ -278,7 +371,6 @@ def h5_align_data(
                 compression_opts=2,
             )
 
-            res[tempnames[j]] = times
 
             for i in iroi:
                 print(i)
@@ -308,16 +400,16 @@ def h5_align_data(
                 else:
                     refim = align_image_fast1(img, matrix, reswidth, resheight)
                     for ccounter in range(len(rotangles)):
-                        prefix = "check" + str(ccounter) + "_"
-                        cm = hf[prefix + tempnames[j]][i]
+                        name = "/check" + str(ccounter) 
+                        cm = hf[tempnames[j]+name][i]
                         alignedmaps[ccounter] = align_image_fast1(
                             cm, matrix, reswidth, resheight
                         )
 
-                res["ref_" + tempnames[j]][i] = refim
+                res[tempnames[j]+"/ref"][i] = refim
                 for ccounter in range(len(rotangles)):
-                    prefix = "check" + str(ccounter) + "_"
-                    res[prefix + tempnames[j]][i] = alignedmaps[ccounter].astype(
+                    name = "/check" + str(ccounter) 
+                    res[tempnames[j]+name][i] = alignedmaps[ccounter].astype(
                         np.uint8
                     )
     return refim
@@ -340,6 +432,7 @@ def h5_enhance_and_align(
 ):
 
     rotangles, tempnames = assure_multiple(rotangles, tempnames)
+    
     (
         size,
         overlap,
@@ -455,66 +548,61 @@ def h5_enhance_and_align(
     return checkmaps
 
 
-#%%
-def h5_thresholding(newh5, oldh5, rotangles, tnames, inames, params, roi=None):
+#%% thresholding
+def h5_thresholding(newh5, oldh5, rotangles, tempnames, params, roi=None):
     houghdist, Hthreshold, Hminlength, Hmaxgap, deg_tol, im2 = params
     with h5py.File(newh5, "w") as res, h5py.File(oldh5, "r") as hf:
+        
+        if roi is None:
+            testindex = 0
+        else:
+            testindex = roi[0]
+            
+        imshape = hf[tempnames[0] + "/imgs"][testindex].shape
 
-        for j in range(len(tnames)):
+        for j in range(len(tempnames)):
 
-            times = hf[tnames[j]][()]
-
+            times = hf[tempnames[j] + "/time"][()]
+            res[tempnames[j] + "/time"] = times
+            
             name = "check0_" + inames[j]
             img = hf[name][0]
             imshape = img.shape
 
-            res.create_dataset(
-                "srb_" + inames[j],
-                shape=[len(times), imshape[0], imshape[1]],
-                dtype=np.uint8,
-                chunks=(1, imshape[0], imshape[1]),
-                compression="gzip",
-                compression_opts=2,
-            )
-
             for ccounter in range(len(rotangles)):
-                prefix = "check" + str(ccounter) + "_"
+                name = "/check" + str(ccounter)
                 res.create_dataset(
-                    prefix + inames[j],
-                    shape=[len(times), imshape[0], imshape[1]],
+                    tempnames[j] + name,
+                    shape=[len(iroi), imshape[0], imshape[1]],
                     dtype=np.uint8,
                     chunks=(1, imshape[0], imshape[1]),
                     compression="gzip",
                     compression_opts=2,
                 )
-            # res.create_dataset(tnames[j],shape=(len(times)),dtype='f')
 
-            res[tnames[j]] = times
 
             if roi is None:
                 iroi = np.arange(len(times))
             else:
                 iroi = roi
 
-            for k in iroi:
+            for i in iroi:
                 print(k)
                 # if k==1:
                 #    break
 
                 srbs = []
-                for i in range(len(rotangles)):
-                    name = "check" + str(i) + "_" + inames[j]
+                for ccounter in range(len(rotangles)):
+                    name = "/check" + str(ccounter) 
 
                     workimg = np.zeros(imshape, dtype=np.double)
-                    workimg += hf[name][k]
+                    workimg += hf[name][i]
                     workimg *= im2
 
                     (thresh, srb) = cv2.threshold(
-                        img_to_uint8(workimg), 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
+                        hf[name][i], 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
                     )
-                    srb = (workimg > thresh).astype(np.uint8)
-
-                    srbs.append(srb)
+                    
                     lines = cv2.HoughLinesP(
                         srb,  # Input edge image
                         houghdist,  # 0.5 Distance resolution in pixels
@@ -531,11 +619,9 @@ def h5_thresholding(newh5, oldh5, rotangles, tnames, inames, params, roi=None):
                         x1, y1, x2, y2 = points  # [0]
                         cv2.line(newimg, (x1, y1), (x2, y2), 255, 1)
 
-                    prefix = "check" + str(i) + "_"
-                    res[prefix + inames[j]][k] = newimg
+                    res[name][i] = newimg
 
-                res["srb_" + inames[j]][k] = (np.sum(srbs, axis=0) > 0).astype(np.uint8)
 
-    return np.sum(srbs, axis=0) > 0, newlines
+    return srb, newlines
 
                     
