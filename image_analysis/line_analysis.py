@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+"""
+@author: kernke
+"""
+
 import numpy as np
 from skimage.draw import line_aa
 from numba import njit

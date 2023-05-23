@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon May  8 15:31:33 2023
-
 @author: kernke
 """
 import h5py
@@ -9,13 +7,31 @@ from datetime import datetime
 from .general_util import folder_file,assure_multiple,make_mask,take_map
 from .image_processing import img_rotate_bound,img_morphLaplace,img_to_uint8
 from .image_aligning import align_images,align_image_fast1
-from .line_detection import line_process_partial,line_check_angle_s,line_process2
+from .line_detection import line_process_partial,line_check_angle_s,line_process_vis
 import numpy as np
 import cv2
 import time
 
-#%% merge_h5pys
+#%%
+def h5_sortout_0frames_in_raw(rawh5):
+    with h5py.File(rawh5,'r+') as h5:
+        keylist=list(h5.keys())
+        for i in keylist:
+            data= h5[i+"/imgs"][()]
+            time= h5[i+"/time"][()]
+            maxvals=[np.max(img) for img in data]
+            keepvals=np.argwhere(maxvals)[:,0]
+            if len(maxvals) > len(keepvals):
+                print('sdf')
+                del h5[i+"/imgs"] 
+                del h5[i+"/time"]
+                h5_images_dataset(h5, i+"/imgs", [len(keepvals),*data[0].shape])
+                h5[i+"/imgs"][:]=data[keepvals]
+                h5[i+"/time"]=time[keepvals]
+                
 
+    
+#%% merge_h5pys
 
 def h5_merge(newh5, *h5files):
     with h5py.File(newh5, "w") as res:
@@ -116,6 +132,20 @@ def h5_make_temp_rois(numbers, alltimes, startnums):
 
     return tpicnums, temporder
 
+#%% create dataset
+def h5_images_dataset(h5,name,shape,
+                      dtype=np.uint8,
+                      compression="gzip",compression_opts=2):
+
+    h5.create_dataset(
+        name,
+        shape=shape,
+        dtype=dtype,
+        chunks=(1, shape[1], shape[2]),
+        compression=compression,
+        compression_opts=compression_opts,
+    )
+
 #%% go_over_data vis
 
 
@@ -163,14 +193,8 @@ def h5_go_over_data_vis(
 
             for ccounter in range(len(rotangles)):
                 name = "/check" + str(ccounter)
-                res.create_dataset(
-                    tempnames[j] + name,
-                    shape=[len(iroi), imshape[0], imshape[1]],
-                    dtype=np.uint8,
-                    chunks=(1, imshape[0], imshape[1]),
-                    compression="gzip",
-                    compression_opts=2,
-                )
+                h5_images_dataset(res, tempnames[j] + name, [len(iroi), *imshape])
+
             res.create_dataset(tempnames[j] + "/time", shape=(len(iroi)), dtype="f")
 
             for i in iroi:
@@ -190,7 +214,7 @@ def h5_go_over_data_vis(
                     summed += img
                     copt = img_to_uint8(summed)
 
-                    checkmaps = line_process2(
+                    checkmaps = line_process_vis(
                         copt,
                         rotangles,
                         masks,
@@ -253,14 +277,8 @@ def h5_go_over_data(
 
             for ccounter in range(len(rotangles)):
                 name = "/check" + str(ccounter)
-                res.create_dataset(
-                    tempnames[j] + name,
-                    shape=[len(iroi), imshape[0], imshape[1]],
-                    dtype=np.uint8,
-                    chunks=(1, imshape[0], imshape[1]),
-                    compression="gzip",
-                    compression_opts=2,
-                )
+                h5_images_dataset(res, tempnames[j] + name, [len(iroi), *imshape])
+                
             res.create_dataset(tempnames[j] + "/time", shape=(len(iroi)), dtype="f")
 
             for i in iroi:

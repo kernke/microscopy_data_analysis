@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon May  8 15:31:56 2023
-
 @author: kernke
 
 image in image out
@@ -223,8 +221,9 @@ def img_transform(image, imshape, rfftmask, rebin=True):
     )
     if rebin:
         rebin_shape = np.array(imshape) // 2
-        equ = rebin(equ, rebin_shape)
+        equ = img_rebin(equ, rebin_shape)
     equ -= np.min(equ)
+        
     return (equ / np.max(equ) * 254 + 1).astype(np.uint8)
 
 #%% asymmetric non maximum supppression

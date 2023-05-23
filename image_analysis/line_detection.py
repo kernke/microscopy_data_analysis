@@ -6,19 +6,22 @@
 import numpy as np
 import cv2
 from .general_util import make_mask
-from .image_processing import img_rotate_bound,img_rotate_back,img_anms,img_noise_line_suppression,img_to_uint8
+from .image_processing import (
+    img_rotate_bound,
+    img_rotate_back,
+    img_anms,
+    img_noise_line_suppression,
+    img_to_uint8,
+)
 from numba import njit
 
 
-
 #%% enhance_lines_partial
-def line_enhance_horizontal(
-    trot, mask, ksize=None, dist=1, iterations=2, line="dark"
-):
+def line_enhance_horizontal(trot, mask, ksize=None, dist=1, iterations=2, line="dark"):
 
     if ksize is None:
-        ksize=3
-    
+        ksize = 3
+
     if line == "dark":
         trot -= np.min(trot)
         trot = np.max(trot) - trot
@@ -30,7 +33,7 @@ def line_enhance_horizontal(
     res = np.copy(tres)
 
     for i in range(iterations):
-        
+
         srot = cv2.Sobel(tres, cv2.CV_64F, 0, 1, ksize=ksize)
 
         msrot = np.ma.array(srot, mask=np.invert(mask))
@@ -46,8 +49,7 @@ def line_enhance_horizontal(
         tres[dist:, :] += t1[:-dist, :] * (srot[:-dist, :] - middle)
 
         res *= tres
-    return res ** (1 / (iterations + 1)),trot / np.max(trot) * 255  
-
+    return res ** (1 / (iterations + 1)), trot / np.max(trot) * 255
 
 
 #%% obtain_maps
@@ -60,7 +62,7 @@ def obtain_maps(qkeys, qline_images, qsum_images, qcheck_images, lowhigh):
     fullmap = np.zeros([xmax, ymax])
     singlemaps = np.zeros([nangles, xmax, ymax])
     checkmaps = np.zeros([nangles, xmax, ymax])
-   
+
     for i in qkeys:
         xmin = lowhigh[i][0][0]
         ymin = lowhigh[i][1][0]
@@ -68,13 +70,10 @@ def obtain_maps(qkeys, qline_images, qsum_images, qcheck_images, lowhigh):
         fullmap[xmin : xmin + ishape[0], ymin : ymin + ishape[1]] += qsum_images[i]
 
         for j in range(nangles):
-            checkmaps[
-                j, xmin : xmin + ishape[0], ymin : ymin + ishape[1]
-            ] += qcheck_images[i][j]
+            checkmaps[j, xmin : xmin + ishape[0], ymin : ymin + ishape[1]] += qcheck_images[i][j]
             singlemaps[j, xmin : xmin + ishape[0], ymin : ymin + ishape[1]] += (
                 qline_images[i][j] > 10
             ) * 1.0
-
 
     singlereturn = (singlemaps > 0) * 1
 
@@ -99,7 +98,9 @@ def line_check_angle(lines, deg_tol=1.5):
             newlines.append([x1, y1, x2, y2])
     return newlines
 
+
 #%% check_angle
+
 
 @njit
 def line_check_angle_s(lines, rotangle, deg_tol=1.5):
@@ -115,20 +116,14 @@ def line_check_angle_s(lines, rotangle, deg_tol=1.5):
         for points in lines:
             x1, y1, x2, y2 = points[0]
             denom = max(np.abs(x2 - x1), 1)
-            if (
-                abs(y2 - y1) / denom < delta_ratios[1]
-                or abs(y2 - y1) / denom > delta_ratios[0]
-            ):
+            if abs(y2 - y1) / denom < delta_ratios[1] or abs(y2 - y1) / denom > delta_ratios[0]:
                 newlines.append([x1, y1, x2, y2])
 
     elif dangle0 < 0 and dangle1 > 0:
         for points in lines:
             x1, y1, x2, y2 = points[0]
             denom = max(np.abs(x2 - x1), 1)
-            if (
-                abs(y2 - y1) / denom < delta_ratios[1]
-                and abs(y2 - y1) / denom > delta_ratios[0]
-            ):
+            if abs(y2 - y1) / denom < delta_ratios[1] and abs(y2 - y1) / denom > delta_ratios[0]:
                 newlines.append([x1, y1, x2, y2])
     else:
         delta_ratios = np.sort(np.abs(delta_ratios))
@@ -136,17 +131,14 @@ def line_check_angle_s(lines, rotangle, deg_tol=1.5):
         for points in lines:
             x1, y1, x2, y2 = points[0]
             denom = max(np.abs(x2 - x1), 1)
-            if (
-                abs(y2 - y1) / denom < delta_ratios[1]
-                and abs(y2 - y1) / denom > delta_ratios[0]
-            ):
+            if abs(y2 - y1) / denom < delta_ratios[1] and abs(y2 - y1) / denom > delta_ratios[0]:
                 newlines.append([x1, y1, x2, y2])
 
     return newlines
 
 
-
 #%% process
+
 
 def line_process(
     image,
@@ -166,17 +158,16 @@ def line_process(
     houghdist=1,
 ):
 
-    line_images = np.zeros([len(rotangles),*image.shape])
-    check_images = np.zeros([len(rotangles),*image.shape])
+    line_images = np.zeros([len(rotangles), *image.shape])
+    check_images = np.zeros([len(rotangles), *image.shape])
 
     for k in range(len(rotangles)):
-        
+
         rot, log = img_rotate_bound(image, rotangles[k])
         dummy = np.ones(image.shape)
         drot, log = img_rotate_bound(dummy, rotangles[k], bm=0)
         mask = make_mask(drot, 2)
-        
-        
+
         tres, rotimg = line_enhance_horizontal(
             rot,
             mask,
@@ -224,11 +215,13 @@ def line_process(
             x1, y1, x2, y2 = points
             cv2.line(newimg, (x1, y1), (x2, y2), 255, 1)
 
-        check_images[k]=img_rotate_back(clean, log)
+        check_images[k] = img_rotate_back(clean, log)
 
         line_images[k] = img_rotate_back(newimg, log)
 
-    return check_images,(line_images > 0) * 1
+    return check_images, (line_images > 0) * 1
+
+
 #%% process_partial
 def line_process_partial(
     image,
@@ -245,15 +238,14 @@ def line_process_partial(
     dist=1,
 ):
 
-    check_images = np.zeros([len(rotangles),*image.shape])
-    
+    check_images = np.zeros([len(rotangles), *image.shape])
 
     for k in range(len(rotangles)):
 
         rot, log = img_rotate_bound(image, rotangles[k])
-        #rot=np.array(rot).astype(np.double)
+        # rot=np.array(rot).astype(np.double)
         if db_dist is None:
-            tres,rotimg = line_enhance_horizontal(
+            tres, rotimg = line_enhance_horizontal(
                 rot,
                 masks[k],
                 iterations=iterations,
@@ -272,7 +264,7 @@ def line_process_partial(
 
         else:
 
-            tres,rotimg = line_enhance_horizontal(
+            tres, rotimg = line_enhance_horizontal(
                 rot,
                 masks[k],
                 iterations=iterations,
@@ -280,7 +272,7 @@ def line_process_partial(
                 line="bright",
                 dist=dist,
             )
-            tres2,rotimg = line_enhance_horizontal(
+            tres2, rotimg = line_enhance_horizontal(
                 rot,
                 masks[k],
                 iterations=iterations,
@@ -310,22 +302,23 @@ def line_process_partial(
                 clean[db_dist_abs:] += clean2[:-db_dist_abs]
             else:
                 clean[:-db_dist] += clean2[db_dist:]
-                
+
         clean = img_to_uint8(clean)
 
-        check_images[k]=img_rotate_back(clean, log)
+        check_images[k] = img_rotate_back(clean, log)
 
     return check_images
 
 
-#%% process2
+#%% process vis
 
-def line_process2(
+
+def line_process_vis(
     image,
     rotangles,
     masks,
     ksize_erodil=15,
-    ksize_anms=15,#19
+    ksize_anms=15,  # 19
     damp=10,
     line="dark",
     ksize=None,
@@ -334,7 +327,7 @@ def line_process2(
     dist=1,
 ):
 
-    check_images = np.zeros([len(rotangles),*image.shape])
+    check_images = np.zeros([len(rotangles), *image.shape])
 
     for k in range(len(rotangles)):
         rot, log = img_rotate_bound(image, rotangles[k])
@@ -353,7 +346,7 @@ def line_process2(
             thresh_ratio=anms_threshold,
             ksize=ksize_anms,
             damping=damp,
-        )  
+        )
 
         clean = img_noise_line_suppression(nms, ksize_erodil)
         clean = clean / np.max(clean) * 255
@@ -363,6 +356,6 @@ def line_process2(
         nclean += rotimg
 
         nclean = img_to_uint8(nclean)
-        check_images[k]=img_rotate_back(nclean, log)
+        check_images[k] = img_rotate_back(nclean, log)
 
     return check_images
