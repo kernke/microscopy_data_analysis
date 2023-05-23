@@ -406,8 +406,6 @@ def pascal_numbers(n):
 
 
 #%% smoothbox_kernel
-
-
 def smoothbox_kernel(kernel_size):
     """Gaussian Smoothing kernel approximated by integer-values obtained via binomial distribution"""
     r = kernel_size[0]

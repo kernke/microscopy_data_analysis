@@ -132,105 +132,11 @@ def h5_go_over_data_vis(
         kernel,
     ) = params
 
-    if roi is None:
-        testindex = 0
-    else:
-        testindex = roi[0]
 
     with h5py.File(newh5, "w") as res, h5py.File(oldh5, "r") as hf:
 
-        imshape = hf[tempnames[0] + "/imgs"][testindex].shape
+        imshape = hf[tempnames[0] + "/imgs"][0].shape
 
-
-        for j in range(len(tempnames)):
-
-            print(tempnames[j])
-            print("________________________________")
-            if timed:
-                time_now = time.time()
-
-            times = hf[tempnames[j] + "/time"][()]
-
-            if roi is None:
-                iroi = np.arange(len(times))
-            else:
-                iroi = roi
-                times=times[iroi]
-
-            time0 = times[0]
-
-            for ccounter in range(len(rotangles)):
-                name = "/check" + str(ccounter)
-                res.create_dataset(
-                    tempnames[j] + name,
-                    shape=[len(iroi), imshape[0], imshape[1]],
-                    dtype=np.uint8,
-                    chunks=(1, imshape[0], imshape[1]),
-                    compression="gzip",
-                    compression_opts=2,
-                )
-            res.create_dataset(tempnames[j] + "/time", shape=(len(iroi)), dtype="f")
-
-            for i in iroi:
-                print(i)
-                if timed:
-                    print(time.time() - time_now)
-                img = hf[tempnames[j] + "/imgs"][i]
-
-                if no_output:
-                    checkmaps = np.ones([len(rotangles), imshape[0], imshape[1]])
-                else:
-
-                    lapl = img_morphLaplace(img, kernel)
-
-                    summed = np.zeros(lapl.shape, dtype=np.double)
-                    summed += 255 - lapl
-                    summed += img
-                    copt = img_to_uint8(summed)
-
-                    checkmaps = line_process2(
-                        copt,
-                        rotangles,
-                        Hthreshold=35,
-                        line=line,
-                        anms_threshold=anms_threshold,
-                        ksize_anms=ksize_anms,
-                        ksize_erodil=ksize_erodil
-                    )
-
-                res[tempnames[j] + "/time"][i] = times[i] - time0
-                for ccounter in range(len(rotangles)):
-                    name = "/check" + str(ccounter)
-                    cm = checkmaps[ccounter] / np.max(checkmaps[ccounter]) * 255
-                    res[tempnames[j] + name][i] = cm.astype(np.uint8)
-    return checkmaps
-
-#%% go_over_data
-
-def h5_go_over_data(
-    newh5, oldh5, rotangles, tempnames, params, roi=None, no_output=False, timed=False
-):
-    rotangles, tempnames = assure_multiple(rotangles, tempnames)
-    
-    (
-        size,
-        overlap,
-        anms_threshold,
-        ksize_anms,
-        ksize_erodil,
-        line,
-        db_dist,
-        kernel,
-    ) = params
-
-    if roi is None:
-        testindex = 0
-    else:
-        testindex = roi[0]
-
-    with h5py.File(newh5, "w") as res, h5py.File(oldh5, "r") as hf:
-
-        imshape = hf[tempnames[0] + "/imgs"][testindex].shape
         dummy = np.ones(imshape)
         masks = []
         for i in range(len(rotangles)):
@@ -284,11 +190,100 @@ def h5_go_over_data(
                     summed += img
                     copt = img_to_uint8(summed)
 
-                    images, lowhigh = take_map(copt, size, overlap)
-                    checkmaps = line_process_partial(
-                        images,
+                    checkmaps = line_process2(
+                        copt,
                         rotangles,
-                        lowhigh,
+                        masks,
+                        line=line,
+                        anms_threshold=anms_threshold,
+                        ksize_anms=ksize_anms,
+                        ksize_erodil=ksize_erodil
+                    )
+
+                res[tempnames[j] + "/time"][i] = times[i] - time0
+                for ccounter in range(len(rotangles)):
+                    name = "/check" + str(ccounter)
+                    cm = checkmaps[ccounter] / np.max(checkmaps[ccounter]) * 255
+                    res[tempnames[j] + name][i] = cm.astype(np.uint8)
+    return checkmaps
+
+#%% go_over_data
+
+def h5_go_over_data(
+    newh5, oldh5, rotangles, tempnames, params, roi=None, no_output=False, timed=False
+):
+    rotangles, tempnames = assure_multiple(rotangles, tempnames)
+    
+    (
+        anms_threshold,
+        ksize_anms,
+        ksize_erodil,
+        line,
+        db_dist,
+        kernel,
+    ) = params
+
+
+    with h5py.File(newh5, "w") as res, h5py.File(oldh5, "r") as hf:
+
+        imshape = hf[tempnames[0] + "/imgs"][0].shape
+        dummy = np.ones(imshape)
+        masks = []
+        for i in range(len(rotangles)):
+            drot, log = img_rotate_bound(dummy, rotangles[i], bm=0)
+            newmask = make_mask(drot, 2)
+            masks.append(newmask)
+
+        for j in range(len(tempnames)):
+
+            print(tempnames[j])
+            print("________________________________")
+            if timed:
+                time_now = time.time()
+
+            times = hf[tempnames[j] + "/time"][()]
+
+            if roi is None:
+                iroi = np.arange(len(times))
+            else:
+                iroi = roi
+                times=times[iroi]
+
+            time0 = times[0]
+
+            for ccounter in range(len(rotangles)):
+                name = "/check" + str(ccounter)
+                res.create_dataset(
+                    tempnames[j] + name,
+                    shape=[len(iroi), imshape[0], imshape[1]],
+                    dtype=np.uint8,
+                    chunks=(1, imshape[0], imshape[1]),
+                    compression="gzip",
+                    compression_opts=2,
+                )
+            res.create_dataset(tempnames[j] + "/time", shape=(len(iroi)), dtype="f")
+
+            for i in iroi:
+                print(i)
+                if timed:
+                    print(time.time() - time_now)
+                img = hf[tempnames[j] + "/imgs"][i]
+
+                if no_output:
+                    checkmaps = np.ones([len(rotangles), imshape[0], imshape[1]])
+                else:
+
+                    lapl = img_morphLaplace(img, kernel)
+
+                    summed = np.zeros(lapl.shape, dtype=np.double)
+                    summed += 255 - lapl
+                    summed += img
+                    copt = img_to_uint8(summed)
+
+
+                    checkmaps = line_process_partial(
+                        copt,
+                        rotangles,
                         masks,
                         line=line,
                         anms_threshold=anms_threshold,

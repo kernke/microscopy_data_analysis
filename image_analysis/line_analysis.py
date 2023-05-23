@@ -286,7 +286,7 @@ class line_analysis_object:
         shape = []
         confidence = []
         for i in range(len(singlemaps)):
-            conpoi, conlen = get_connected_points2(singlemaps[i])
+            conpoi, conlen = get_connected_points(singlemaps[i])
             conpois.append(conpoi)
             conlens.append(conlen)
             shape.append(len(conlen))

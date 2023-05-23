@@ -100,9 +100,12 @@ def obtain_snr(image, mask, line, show, minlength):
 
 #%% enhance_lines_prototype
 def enhance_lines_prototype(
-    image, angle, number_of_bins=61, ksize=None, dist=1, iterations=2, line="dark"
+    image, angle, ksize=None, dist=1, iterations=2, line="dark"
 ):
 
+    if ksize is None:
+        ksize=3
+    
     dummy = np.ones(image.shape)
     rot, log = img_rotate_bound(image, angle)
     drot, log = img_rotate_bound(dummy, angle, bm=0)
@@ -120,10 +123,8 @@ def enhance_lines_prototype(
     # res=np.copy(tres)
 
     for i in range(iterations):
-        if ksize is None:
-            srot = cv2.Sobel(tres, cv2.CV_64F, 0, 1)
-        else:
-            srot = cv2.Sobel(tres, cv2.CV_64F, 0, 1, ksize=ksize)
+
+        srot = cv2.Sobel(tres, cv2.CV_64F, 0, 1, ksize=ksize)
 
         msrot = np.ma.array(srot, mask=np.invert(newmask))
 
@@ -139,7 +140,107 @@ def enhance_lines_prototype(
 
     return tres * newmask, newmask, log
 
+#%% Enhance Lines2
+"""
+def line_enhance2(
+    image, angle, ksize=None, dist=1, iterations=2, line="dark"
+):
 
+    if len(np.shape(dist)) == 0:
+        dist = [dist]
+
+    dummy = np.ones(image.shape)
+    rot, log = img_rotate_bound(image, angle)
+    drot, log = img_rotate_bound(dummy, angle, bm=0)
+    newmask = make_mask(drot, 2)
+
+    trot = np.clip(rot, np.min(image), np.max(image))
+    if line == "dark":
+        trot -= np.min(trot)
+        trot = np.max(trot) - trot
+    elif line == "bright":
+        pass
+
+    tres = trot / np.max(trot) * 255
+
+    res = np.copy(tres)
+
+    for i in range(iterations):
+        if ksize is None:
+            srot = cv2.Sobel(tres, cv2.CV_64F, 0, 1)
+        else:
+            srot = cv2.Sobel(tres, cv2.CV_64F, 0, 1, ksize=ksize)
+
+        msrot = np.ma.array(srot, mask=np.invert(newmask))
+
+        middle = np.median(msrot)
+
+        t1 = srot > middle
+        t2 = srot <= middle
+
+        tres2 = np.zeros([len(dist), srot.shape[0], srot.shape[1]])
+        for j in range(len(dist)):
+            tres2[j, : -dist[j], :] -= t2[dist[j] :, :] * (srot[dist[j] :, :] - middle)
+            tres2[j, dist[j] :, :] += t1[: -dist[j], :] * (srot[: -dist[j], :] - middle)
+        tres = np.sum(tres2, axis=0)
+        res *= tres
+
+    return (
+        res ** (1 / (iterations + 1)) * newmask,
+        newmask,
+        log,
+        trot / np.max(trot) * 255,
+    )
+"""
+#%% Enhance Lines
+"""
+def line_enhance(
+    image, angle, ksize=None, dist=1, iterations=2, line="dark"
+):
+
+    dummy = np.ones(image.shape)
+    rot, log = img_rotate_bound(image, angle)
+    drot, log = img_rotate_bound(dummy, angle, bm=0)
+    newmask = make_mask(drot, 2)
+
+    trot = np.clip(rot, np.min(image), np.max(image))
+    if line == "dark":
+        trot -= np.min(trot)
+        trot = np.max(trot) - trot
+    elif line == "bright":
+        pass
+
+    tres = trot / np.max(trot) * 255
+
+    res = np.copy(tres)
+
+    for i in range(iterations):
+        if ksize is None:
+            srot = cv2.Sobel(tres, cv2.CV_64F, 0, 1)
+        else:
+            srot = cv2.Sobel(tres, cv2.CV_64F, 0, 1, ksize=ksize)
+
+        msrot = np.ma.array(srot, mask=np.invert(newmask))
+
+        middle = np.median(msrot)
+
+        t1 = srot > middle
+        t2 = srot <= middle
+
+        tres = np.zeros(srot.shape)
+
+        tres[:-dist, :] -= t2[dist:, :] * (srot[dist:, :] - middle)
+        tres[dist:, :] += t1[:-dist, :] * (srot[:-dist, :] - middle)
+
+        res *= tres
+
+    return (
+        res ** (1 / (iterations + 1)) * newmask,
+        newmask,
+        log,
+    )  
+
+"""
 #%% process2
 """
 # smoothsize=35
