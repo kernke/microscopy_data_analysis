@@ -26,7 +26,7 @@ def get_indices_sparse(data):
 
 
 #%% get_connected_points
-def get_connected_points(srb):
+def get_connected_points(srb,minimal_points=5):
     srb=img_to_uint8(1*(srb))
     num_labels, labels_im = cv2.connectedComponents(srb,connectivity=4)
     indices = get_indices_sparse(labels_im)
@@ -34,8 +34,10 @@ def get_connected_points(srb):
     conpoi=[]
     conlen = []
     for i in range(1,len(indices)):
-        conpoi.append(np.array(indices[i]).T)
-        conlen.append(len(conpoi[-1]))
+        points=np.array(indices[i]).T
+        if len(points)>minimal_points:
+            conpoi.append(points)
+            conlen.append(len(points))
     
     return conpoi,conlen
 
@@ -82,6 +84,7 @@ def _calc_m_n_t_l(points, singlemap):
     dy = yend - ystart
     dx = xend - xstart
 
+
     t = int(np.ceil(len(points) / np.sqrt(dy * dy + dx * dx)))
     startmean = np.zeros(2)
     endmean = np.zeros(2)
@@ -109,6 +112,12 @@ def _calc_m_n_t_l(points, singlemap):
 
     dy = e[0] - s[0]
     dx = e[1] - s[1]
+    if  dx == 0:
+        dx=10**(-20)
+        print("Warning")
+        print("number of points "+str(len(points)))
+        print("division by zero")
+
     m = dy / dx
     l = math.sqrt(dy * dy + dx * dx)
 
@@ -354,17 +363,16 @@ class line_analysis_object:
             med_mad[0] = np.median(concheck)
             md_concheck = concheck - med_mad[0]
             med_mad[1] = np.median(np.abs(md_concheck))
-
             threshold = med_mad[0] - mad_t[i] * med_mad[1]
             wrong = np.where(concheck < threshold)[0]
-
             confidence.append((concheck - threshold).tolist())
 
             print(len(wrong))
             if plot:
                 plt.plot(concheck, "o")
                 plt.title(str(i))
-                plt.hlines(-mad_t[i] * med_mad[1], 0, len(concheck))
+                plt.hlines(med_mad[0], 0, len(concheck),colors='b')
+                plt.hlines(threshold, 0, len(concheck),colors='r')
                 plt.show()
 
             for j in wrong:
@@ -502,7 +510,7 @@ class line_analysis_object:
 
     #%% eliminate_side_maxima_checkmaps
     def eliminate_side_maxima_checkmaps(
-        self, shiftrange=20, tol=2, ratio_threshold=0.75,line="dark", test=False
+        self, shiftrange=20, ratio_threshold=2., test=False
     ):
         tms = self.slope_groups
         conpois = self.conpois
@@ -516,30 +524,93 @@ class line_analysis_object:
         for i in range(len(conpois)):
             sortout.append([])
             sortoutids.append([])
-            #imcheck= _check_image(conpois[i], conlens[i], checkmaps[i])
-            #if line == 'dark':
-            #    cond=imcheck>medbrightness*med_ratio_threshold
-            #else:
-            #    cond=imcheck*med_ratio_threshold<medbrightness
+
                 
-            #print(len(conpois[i]))
-            #print(np.sum(cond))
-            counthelper=0
+            binmap=np.zeros(checkmaps[i].shape,dtype=bool)
+            for j in conpois[i]:
+                binmap[j[:,0],j[:,1]]=True
 
             if tms[i] > 1:
                 for j in range(len(conpois[i])):
-                    check = _getcheck1(shiftrange, conpois[i][j], checkmaps[i])#,self.binmap)#checkmaps[i])
-
-                    vcheck = np.max(check[shiftrange - tol : shiftrange + tol])
-                    #gcheck = np.mean(check[: shiftrange - tol])+ np.mean(check[shiftrange + tol :])
-                    #gcheck /=2
+                    check = _getcheck3(shiftrange, conpois[i][j], checkmaps[i],binmap)
+                    gcheck=max(check)
                     
-                    gcheck = max(max(check[: shiftrange - tol]), max(check[shiftrange + tol :]))
-                    if counthelper<3:
-                        print(vcheck)
-                        print(gcheck)
-                        print("_____")
-                    counthelper+=1
+                    vcheck=0
+                    for k in conpois[i][j]:
+                        vcheck += checkmaps[i][k[0], k[1]]
+                    vcheck /= conlens[i][j]
+                    
+                    if vcheck * ratio_threshold < gcheck:
+
+                        sortout[-1].append(conpois[i][j])
+                        sortoutids[-1].append(j)
+
+            else:
+                for j in range(len(conpois[i])):
+                    check = _getcheck2(shiftrange, conpois[i][j], checkmaps[i],binmap)
+                    gcheck=max(check)
+                    
+                    vcheck=0
+                    for k in conpois[i][j]:
+                        vcheck += checkmaps[i][k[0], k[1]]
+                    vcheck /= conlens[i][j]
+                    
+                    if vcheck * ratio_threshold < gcheck:
+
+                        sortout[-1].append(conpois[i][j])
+                        sortoutids[-1].append(j)
+
+            print(len(sortout[-1]))
+
+        if not test:
+            self.sort_ids_out(sortoutids)
+
+        return sortout,check 
+
+    #%% eliminate_side_maxima_checkmaps
+    def eliminate_side_maxima_image(
+        self, shiftrange=20, ratio_threshold=0.75,image=None,line="dark", test=False
+    ):
+        tms = self.slope_groups
+        conpois = self.conpois
+        conlens=self.conlens
+
+        
+
+        if line=="dark":
+            if image is None:
+                image=np.max(self.image)-self.image
+            else:
+                image=np.max(image)-image
+        else:
+            if image is None:
+                image=self.image
+            
+
+        binmap=np.zeros(image.shape,dtype=bool)
+        for i in range(len(conpois)):
+            for j in conpois[i]:
+                binmap[j[:,0],j[:,1]]=True
+
+            
+        sortoutids = []
+        sortout = []
+
+        for i in range(len(conpois)):
+            sortout.append([])
+            sortoutids.append([])
+
+                
+            if tms[i] > 1:
+                for j in range(len(conpois[i])):
+                    check = _getcheck3(shiftrange, conpois[i][j], image,binmap)#checkmaps[i])
+                    gcheck=max(check)
+                    vcheck=0
+                    for k in conpois[i][j]:
+                        vcheck += image[k[0], k[1]]
+                    vcheck /= conlens[i][j]
+                    
+
                     if vcheck * ratio_threshold < gcheck:# and cond[i]:
 
                         sortout[-1].append(conpois[i][j])
@@ -547,17 +618,13 @@ class line_analysis_object:
 
             else:
                 for j in range(len(conpois[i])):
-                    check = _getcheck0(shiftrange, conpois[i][j], checkmaps[i])#,self.binmap)#checkmaps[i])
-
-                    vcheck = np.max(check[shiftrange - tol : shiftrange + tol])
-                    #gcheck = np.mean(check[: shiftrange - tol])+ np.mean(check[shiftrange + tol :])
-                    #gcheck /=2
-                    gcheck = max(max(check[: shiftrange - tol]), max(check[shiftrange + tol :]))
-                    if counthelper<3:
-                        print(vcheck)
-                        print(gcheck)
-                        print("_____")
-                    counthelper+=1
+                    check = _getcheck2(shiftrange, conpois[i][j],image,binmap)#checkmaps[i])
+                    gcheck=max(check)
+                    vcheck=0
+                    for k in conpois[i][j]:
+                        vcheck += image[k[0], k[1]]
+                    vcheck /= conlens[i][j]
+                    
                     if vcheck * ratio_threshold < gcheck:# and cond[i]:
 
                         sortout[-1].append(conpois[i][j])
@@ -570,84 +637,6 @@ class line_analysis_object:
 
         return sortout,check 
 
-    #%% eliminate_side_maxima_image
-    def eliminate_side_maxima_image(
-        self, image, shiftrange=2, tol=1, valfactor=2.5, line="dark", test=False
-    ):
-        tms = self.slope_groups
-        conpois = self.conpois
-        # image=self.image
-
-        sortoutids = []
-        sortout = []
-
-        if line == "bright":
-
-            for i in range(len(conpois)):
-                sortout.append([])
-                sortoutids.append([])
-
-                if tms[i] > 1:
-                    for j in range(len(conpois[i])):
-                        check = _getcheck1(shiftrange, conpois[i][j], image)
-
-                        vcheck = np.max(check[shiftrange - tol : shiftrange + tol])
-                        check = check[check.astype(bool)]
-                        checkmed = np.median(check)
-
-                        if vcheck < valfactor * checkmed:
-
-                            sortout[-1].append(conpois[i][j])
-                            sortoutids[-1].append(j)
-
-                else:
-                    for j in range(len(conpois[i])):
-                        check = _getcheck0(shiftrange, conpois[i][j], image)
-
-                        vcheck = np.max(check[shiftrange - tol : shiftrange + tol])
-                        check = check[check.astype(bool)]
-                        checkmed = np.median(check)
-                        if vcheck < valfactor * checkmed:
-                            sortout[-1].append(conpois[i][j])
-                            sortoutids[-1].append(j)
-
-                print(len(sortout[-1]))
-
-        else:
-            for i in range(len(conpois)):
-                sortout.append([])
-                sortoutids.append([])
-
-                if tms[i] > 1:
-                    for j in range(len(conpois[i])):
-                        check = _getcheck1(shiftrange, conpois[i][j], image)
-
-                        vcheck = np.max(check[shiftrange - tol : shiftrange + tol])
-                        check = check[check.astype(bool)]
-                        checkmed = np.median(check)
-
-                        if vcheck > valfactor * checkmed:
-
-                            sortout[-1].append(conpois[i][j])
-                            sortoutids[-1].append(j)
-
-                else:
-                    for j in range(len(conpois[i])):
-                        check = _getcheck0(shiftrange, conpois[i][j], image)
-
-                        vcheck = np.max(check[shiftrange - tol : shiftrange + tol])
-                        check = check[check.astype(bool)]
-                        checkmed = np.median(check)
-                        if vcheck > valfactor * checkmed:
-                            sortout[-1].append(conpois[i][j])
-                            sortoutids[-1].append(j)
-
-                print(len(sortout[-1]))
-
-        if not test:
-            self.sort_ids_out(sortoutids)
-
-        return sortout
 
     #%% merge_conpoi
 

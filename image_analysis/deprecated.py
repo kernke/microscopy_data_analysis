@@ -138,6 +138,92 @@ def enhance_lines_prototype(
 
     return tres * newmask, newmask, log
 
+#%% eliminate_side_maxima_image
+"""
+    def eliminate_side_maxima_image(
+        self, image, shiftrange=2, tol=1, valfactor=2.5, line="dark", test=False
+    ):
+        tms = self.slope_groups
+        conpois = self.conpois
+        # image=self.image
+            #imcheck= _check_image(conpois[i], conlens[i], checkmaps[i])
+            #if line == 'dark':
+            #    cond=imcheck>medbrightness*med_ratio_threshold
+            #else:
+            #    cond=imcheck*med_ratio_threshold<medbrightness
+
+
+        sortoutids = []
+        sortout = []
+
+        if line == "bright":
+
+            for i in range(len(conpois)):
+                sortout.append([])
+                sortoutids.append([])
+
+                if tms[i] > 1:
+                    for j in range(len(conpois[i])):
+                        check = _getcheck1(shiftrange, conpois[i][j], image)
+
+                        vcheck = np.max(check[shiftrange - tol : shiftrange + tol])
+                        check = check[check.astype(bool)]
+                        checkmed = np.median(check)
+
+                        if vcheck < valfactor * checkmed:
+
+                            sortout[-1].append(conpois[i][j])
+                            sortoutids[-1].append(j)
+
+                else:
+                    for j in range(len(conpois[i])):
+                        check = _getcheck0(shiftrange, conpois[i][j], image)
+
+                        vcheck = np.max(check[shiftrange - tol : shiftrange + tol])
+                        check = check[check.astype(bool)]
+                        checkmed = np.median(check)
+                        if vcheck < valfactor * checkmed:
+                            sortout[-1].append(conpois[i][j])
+                            sortoutids[-1].append(j)
+
+                print(len(sortout[-1]))
+
+        else:
+            for i in range(len(conpois)):
+                sortout.append([])
+                sortoutids.append([])
+
+                if tms[i] > 1:
+                    for j in range(len(conpois[i])):
+                        check = _getcheck1(shiftrange, conpois[i][j], image)
+
+                        vcheck = np.max(check[shiftrange - tol : shiftrange + tol])
+                        check = check[check.astype(bool)]
+                        checkmed = np.median(check)
+
+                        if vcheck > valfactor * checkmed:
+
+                            sortout[-1].append(conpois[i][j])
+                            sortoutids[-1].append(j)
+
+                else:
+                    for j in range(len(conpois[i])):
+                        check = _getcheck0(shiftrange, conpois[i][j], image)
+
+                        vcheck = np.max(check[shiftrange - tol : shiftrange + tol])
+                        check = check[check.astype(bool)]
+                        checkmed = np.median(check)
+                        if vcheck > valfactor * checkmed:
+                            sortout[-1].append(conpois[i][j])
+                            sortoutids[-1].append(j)
+
+                print(len(sortout[-1]))
+
+        if not test:
+            self.sort_ids_out(sortoutids)
+
+        return sortout
+"""
 #%% Enhance Lines2
 """
 def line_enhance2(

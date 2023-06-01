@@ -5,7 +5,7 @@
 
 import numpy as np
 import cv2
-from .general_util import make_mask
+from .general_util import make_mask,smoothbox_kernel
 from .image_processing import (
     img_rotate_bound,
     img_rotate_back,
@@ -227,8 +227,8 @@ def line_process_partial(
     image,
     rotangles,
     masks,
-    ksize_erodil=15,
-    ksize_anms=15,
+    ksize_erodil=None,#15
+    ksize_anms=None,#15
     damp=10,
     line="dark",
     ksize=None,
@@ -236,6 +236,7 @@ def line_process_partial(
     db_dist=None,
     anms_threshold=2,
     dist=1,
+    ksize_smooth=None,
 ):
 
     check_images = np.zeros([len(rotangles), *image.shape])
@@ -253,15 +254,6 @@ def line_process_partial(
                 line=line,
                 dist=dist,
             )
-            nms = img_anms(
-                tres,
-                masks[k],
-                thresh_ratio=anms_threshold,
-                ksize=ksize_anms,
-                damping=damp,
-            )
-            clean = img_noise_line_suppression(nms, ksize_erodil)
-
         else:
 
             tres, rotimg = line_enhance_horizontal(
@@ -280,6 +272,17 @@ def line_process_partial(
                 line="dark",
                 dist=dist,
             )
+            
+            if db_dist < 0:
+                db_dist_abs = -db_dist
+                tres[db_dist_abs:] += tres2[:-db_dist_abs]
+            else:
+                tres[:-db_dist] += tres2[db_dist:]
+                
+                
+        if ksize_anms is None:
+            nms=tres
+        else:
             nms = img_anms(
                 tres,
                 masks[k],
@@ -287,23 +290,23 @@ def line_process_partial(
                 ksize=ksize_anms,
                 damping=damp,
             )
-            nms2 = img_anms(
-                tres2,
-                masks[k],
-                thresh_ratio=anms_threshold,
-                ksize=ksize_anms,
-                damping=damp,
-            )
+
+            
+        if ksize_erodil is None:
+            clean=nms
+        else:
             clean = img_noise_line_suppression(nms, ksize_erodil)
-            clean2 = img_noise_line_suppression(nms2, ksize_erodil)
 
-            if db_dist < 0:
-                db_dist_abs = -db_dist
-                clean[db_dist_abs:] += clean2[:-db_dist_abs]
-            else:
-                clean[:-db_dist] += clean2[db_dist:]
+        if ksize_smooth is None:
+            sclean=clean
+        else:
+            smoothkernel=smoothbox_kernel([1,ksize_smooth])[0]
+            sclean=cv2.sepFilter2D(clean,cv2.CV_64F,smoothkernel,np.ones(1))
+            #sclean=cv2.sepFilter2D(sclean,cv2.CV_64F,smoothkernel,np.ones(1))
+            #sclean=cv2.sepFilter2D(sclean,cv2.CV_64F,smoothkernel,np.ones(1))
 
-        clean = img_to_uint8(clean)
+
+        clean = img_to_uint8(sclean)
 
         check_images[k] = img_rotate_back(clean, log)
 
@@ -317,8 +320,8 @@ def line_process_vis(
     image,
     rotangles,
     masks,
-    ksize_erodil=15,
-    ksize_anms=15,  # 19
+    ksize_erodil=None,#15
+    ksize_anms=None,  # 19
     damp=10,
     line="dark",
     ksize=None,
@@ -339,16 +342,21 @@ def line_process_vis(
             line=line,
             dist=dist,
         )
+        if ksize_anms is None:
+            nms=tres
+        else:
+            nms = img_anms(
+                tres,
+                masks[k],
+                thresh_ratio=anms_threshold,
+                ksize=ksize_anms,
+                damping=damp,
+            )
 
-        nms = img_anms(
-            tres,
-            masks[k],
-            thresh_ratio=anms_threshold,
-            ksize=ksize_anms,
-            damping=damp,
-        )
-
-        clean = img_noise_line_suppression(nms, ksize_erodil)
+        if ksize_erodil is None:
+            clean=tres
+        else:
+            clean = img_noise_line_suppression(nms, ksize_erodil)
         clean = clean / np.max(clean) * 255
 
         nclean = np.zeros(clean.shape, dtype=np.double)

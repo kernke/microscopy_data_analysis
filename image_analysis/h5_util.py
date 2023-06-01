@@ -22,7 +22,7 @@ def h5_sortout_0frames_in_raw(rawh5):
             maxvals=[np.max(img) for img in data]
             keepvals=np.argwhere(maxvals)[:,0]
             if len(maxvals) > len(keepvals):
-                print('sdf')
+                print('frame is sorted out')
                 del h5[i+"/imgs"] 
                 del h5[i+"/time"]
                 h5_images_dataset(h5, i+"/imgs", [len(keepvals),*data[0].shape])
@@ -160,6 +160,7 @@ def h5_go_over_data_vis(
         ksize_erodil,
         line,
         kernel,
+        iterations,
     ) = params
 
 
@@ -221,7 +222,8 @@ def h5_go_over_data_vis(
                         line=line,
                         anms_threshold=anms_threshold,
                         ksize_anms=ksize_anms,
-                        ksize_erodil=ksize_erodil
+                        ksize_erodil=ksize_erodil,
+                        iterations=iterations
                     )
 
                 res[tempnames[j] + "/time"][i] = times[i] - time0
@@ -245,6 +247,8 @@ def h5_go_over_data(
         line,
         db_dist,
         kernel,
+        iterations,
+        ksize_smooth,
     ) = params
 
 
@@ -308,6 +312,8 @@ def h5_go_over_data(
                         ksize_anms=ksize_anms,
                         ksize_erodil=ksize_erodil,
                         db_dist=db_dist,
+                        iterations=iterations,
+                        ksize_smooth=ksize_smooth,
                     )
 
                 res[tempnames[j] + "/time"][i] = times[i] - time0

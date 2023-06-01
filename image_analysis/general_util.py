@@ -168,12 +168,11 @@ def polygon_roi(directions_deg, radius):
 def isleft(P0_0, P0_1, P1_0, P1_1, P2_0, P2_1):
     return (P1_0 - P0_0) * (P2_1 - P0_1) - (P2_0 - P0_0) * (P1_1 - P0_1)
 
-
-def point_in_roi(xroi, yroi, xpoint, ypoint):
+def point_in_convex_ccw_roi(xroi, yroi, xpoint, ypoint):
     signs = np.zeros(len(xroi))
     for i in range(len(xroi)):
         signs[i] = isleft(xroi[i - 1], yroi[i - 1], xroi[i], yroi[i], xpoint, ypoint)
-    return np.prod(np.sign(signs)) > 0
+    return np.sum(np.sign(signs)) == len(xroi)
 
 #%% lineIntersection
 def lineIntersection(a, b, c, d):
@@ -267,7 +266,25 @@ def get_n_peaks_1d(y, x=None, delta=0, n=5, roi=None):
 
 #%% get_angular_dist
 def get_angular_dist(image, borderdist=100, centerdist=20, plotcheck=False):
+    """
+    angles measured in degrees starting from horizontal line counterclockwise 
+    (like phi in polar coordinate)    
 
+    Parameters
+    ----------
+    image : MxN array
+    borderdist : int, optional
+        DESCRIPTION. The default is 100.
+    centerdist : int, optional
+        DESCRIPTION. The default is 20.
+    plotcheck : bool, optional
+        DESCRIPTION. The default is False.
+
+    Returns
+    -------
+    angles:
+    intensity:
+    """
     if image.shape[0] != image.shape[1]:
         print("Warning: image is cropped to square")
         img = img_make_square(image)
