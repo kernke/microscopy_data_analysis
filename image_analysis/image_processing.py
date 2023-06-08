@@ -309,6 +309,35 @@ def img_transform(image, imshape, rfftmask, rebin=True):
         
     return (equ / np.max(equ) * 254 + 1).astype(np.uint8)
 
+
+#%%
+def img_transform_minimal(image, imshape,kernel):
+    """
+    special function that resizes an image to imshape,
+
+    Parameters
+    ----------
+    image : MxN array
+    imshape : [int,int], if rebin=True both integers of imshape must be even 
+
+    Returns
+    -------
+    transformed_image: KxL array
+    """
+    image[image <= 0] = 1
+    image = np.log(image)
+    equ = cv2.resize(image, imshape[::-1])
+    equ=(equ / np.max(equ) * 254 + 1).astype(np.uint8)
+    lapl = img_morphLaplace(equ, kernel)
+    summed = np.zeros(lapl.shape, dtype=np.double)
+    summed += 255 - lapl
+    summed += equ
+    copt = img_to_uint8(summed)
+    
+    new = exposure.equalize_adapthist(
+        copt / np.max(copt), kernel_size=[32, 32], nbins=256
+    )
+    return img_to_uint8(new)#(equ / np.max(equ) * 254 + 1).astype(np.uint8)
 #%% asymmetric non maximum supppression
 
 

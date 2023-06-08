@@ -6,6 +6,7 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 from copy import deepcopy
+from .general_util import assure_multiple
 
 # def phase_correlation(im1,im2):
 #    return (ifftn(fftn(im1)*ifftn(im2))).real
@@ -932,6 +933,7 @@ def align_image_fast2(im2, reswidth, resheight, width_shift, height_shift):
 def align_images(im1s, im2, p1s, p2, verbose=False):
     # align p1 to p2
     # p2 higher resolution recommended
+    im1s,p1s=assure_multiple(im1s,p1s)
 
     allwidths = []
     allheights = []
