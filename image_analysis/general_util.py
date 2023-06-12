@@ -40,10 +40,10 @@ def assure_multiple(*x):
     count = 0
     for i in x:
         count += 1
-        if len(np.shape(i)) == 0:
-            res.append([i])
-        else:
+        if hasattr(i, '__iter__'):#len(np.shape(i)) == 0:
             res.append(i)
+        else:
+            res.append([i])
 
     if count == 1:
         return res[0]

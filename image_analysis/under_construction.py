@@ -97,4 +97,80 @@ def determine_noise_threshold(img, mask, thresh_ratio, ksize, asympix):
     return np.sqrt(nma), nme, np.sqrt(nms / npix)
 
 
+#%%
+"""
+            print(str(event.xdata)+" , "+str(event.ydata))
+            
+            sortindex=np.argsort(obj.x)
+            newx=np.array(obj.x)[sortindex]
+            newy=np.array(obj.y)[sortindex]
+            
+            obj.length=dl
+            angle=np.arctan2(dy,dx)/np.pi *180
+            if angle<0:
+                angle=180-angle
+            obj.angle=angle
+            if arg_dic["snap_to_angle"]:
+                angles_index=np.argmin(np.abs(np.array(arg_dic["angles"])-angle))
+            
+                meanx=newx[0]+dx/2
+                meany=newy[0]+dy/2
+    
+                m=arg_dic["ms"][angles_index]
+                n=meany-m*meanx
+                angle_for_cos=arg_dic["angles"][angles_index]/180 * np.pi
+                if angle_for_cos > np.pi/2:
+                    angle_for_cos=np.pi-angle_for_cos
+                ratio_length_to_x=np.cos(angle_for_cos)
+                dl2=dl/2 * ratio_length_to_x
+                obj.x[0]=meanx-dl2
+                obj.x[1]=meanx+dl2
+                obj.y[0]=m*(meanx-dl2)+n
+                obj.y[1]=m*(meanx+dl2)+n
+
+            
+            dim=images[arg_dic["image_counter"]].shape[::-1]
+
+            bsd=arg_dic["border_snap_distance"]
+            xroi=[bsd,dim[0]-bsd,dim[0]-bsd,bsd]
+            yroi=[bsd,bsd,dim[1]-bsd,dim[1]-bsd]
+            
+            cond0=point_in_convex_ccw_roi(xroi, yroi, obj.x[0]+shift[0], obj.y[0]+shift[1])
+            cond1=point_in_convex_ccw_roi(xroi, yroi, obj.x[1]+shift[0], obj.y[1]+shift[1])
+
+            if cond0 and cond1:
+                pass
+            else:
+                a=np.array((obj.x[0]+shift[0],obj.y[0]+shift[1]))
+                b=np.array((obj.x[1]+shift[0],obj.y[1]+shift[1]))
+
+                points=[]
+                points.append(np.array(lineIntersection(a, b,(0,0),(0,dim[1])) ))
+                points.append(np.array(lineIntersection(a, b,(0,0),(dim[0],0)) ))
+                points.append(np.array(lineIntersection(a, b,(0,dim[1]),(dim[0],dim[1]))))
+                points.append(np.array(lineIntersection(a, b,(dim[0],0),(dim[0],dim[1]))))
+
+                if not cond0:
+                    dists=np.zeros(4)
+                    for i in range(4):
+                        dists[i]=np.sum((a-points[i])*(a-points[i]))
+                    res_index=np.argmin(dists)
+                    
+                    obj.x[0]=points[res_index][0]-shift[0]
+                    obj.y[0]=points[res_index][1]-shift[1]
+
+                if not cond1:
+                    dists=np.zeros(4)
+                    for i in range(4):
+                        dists[i]=np.sum((b-points[i])*(b-points[i]))
+                    res_index=np.argmin(dists)
+                    
+                    obj.x[1]=points[res_index][0]-shift[1]
+                    obj.y[1]=points[res_index][1]-shift[1]
+                
+
+"""
+
+
+
 

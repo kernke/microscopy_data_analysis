@@ -13,6 +13,8 @@ from matplotlib.widgets import TextBox
 import math
 from .general_util import point_in_convex_ccw_roi,lineIntersection,assure_multiple
 from .image_aligning import align_images
+import json
+import warnings
 
 #%% make_scale_bar
 def vis_make_scale_bar(
@@ -126,106 +128,34 @@ def vis_plot_line_ids(image, sortout, legend=True, alpha=0.5, markersize=0.5):
     if legend == True:
         plt.legend()
 
-#%%
-"""            
-            print(str(event.xdata)+" , "+str(event.ydata))
-            
-            sortindex=np.argsort(obj.x)
-            newx=np.array(obj.x)[sortindex]
-            newy=np.array(obj.y)[sortindex]
-            
-            obj.length=dl
-            angle=np.arctan2(dy,dx)/np.pi *180
-            if angle<0:
-                angle=180-angle
-            obj.angle=angle
-            if arg_dic["snap_to_angle"]:
-                angles_index=np.argmin(np.abs(np.array(arg_dic["angles"])-angle))
-            
-                meanx=newx[0]+dx/2
-                meany=newy[0]+dy/2
-    
-                m=arg_dic["ms"][angles_index]
-                n=meany-m*meanx
-                angle_for_cos=arg_dic["angles"][angles_index]/180 * np.pi
-                if angle_for_cos > np.pi/2:
-                    angle_for_cos=np.pi-angle_for_cos
-                ratio_length_to_x=np.cos(angle_for_cos)
-                dl2=dl/2 * ratio_length_to_x
-                obj.x[0]=meanx-dl2
-                obj.x[1]=meanx+dl2
-                obj.y[0]=m*(meanx-dl2)+n
-                obj.y[1]=m*(meanx+dl2)+n
-
-            
-            dim=images[arg_dic["image_counter"]].shape[::-1]
-
-            bsd=arg_dic["border_snap_distance"]
-            xroi=[bsd,dim[0]-bsd,dim[0]-bsd,bsd]
-            yroi=[bsd,bsd,dim[1]-bsd,dim[1]-bsd]
-            
-            cond0=point_in_convex_ccw_roi(xroi, yroi, obj.x[0]+shift[0], obj.y[0]+shift[1])
-            cond1=point_in_convex_ccw_roi(xroi, yroi, obj.x[1]+shift[0], obj.y[1]+shift[1])
-
-            if cond0 and cond1:
-                pass
-            else:
-                a=np.array((obj.x[0]+shift[0],obj.y[0]+shift[1]))
-                b=np.array((obj.x[1]+shift[0],obj.y[1]+shift[1]))
-
-                points=[]
-                points.append(np.array(lineIntersection(a, b,(0,0),(0,dim[1])) ))
-                points.append(np.array(lineIntersection(a, b,(0,0),(dim[0],0)) ))
-                points.append(np.array(lineIntersection(a, b,(0,dim[1]),(dim[0],dim[1]))))
-                points.append(np.array(lineIntersection(a, b,(dim[0],0),(dim[0],dim[1]))))
-
-                if not cond0:
-                    dists=np.zeros(4)
-                    for i in range(4):
-                        dists[i]=np.sum((a-points[i])*(a-points[i]))
-                    res_index=np.argmin(dists)
-                    
-                    obj.x[0]=points[res_index][0]-shift[0]
-                    obj.y[0]=points[res_index][1]-shift[1]
-
-                if not cond1:
-                    dists=np.zeros(4)
-                    for i in range(4):
-                        dists[i]=np.sum((b-points[i])*(b-points[i]))
-                    res_index=np.argmin(dists)
-                    
-                    obj.x[1]=points[res_index][0]-shift[1]
-                    obj.y[1]=points[res_index][1]-shift[1]
-                
-"""               
-
-    
-    
-#%% good stuff
+  
+#%% interactive plotting
 
 class line_object:
-    __slots__="x","y","length","changed","index"
-    def __init__(self, x, y, index,image_counter):
+    __slots__="x","y","length","changed"
+    def __init__(self, x, y,image_counter):
         self.x = [x]
         self.y = [y]
         self.length=0
         self.changed=[image_counter]
-        self.index = index
 
 
-    
 def _progress_to_next_image(next_image_counter,line_objs):
     for i in line_objs[next_image_counter-1]:
         if i in line_objs[next_image_counter]:
-            change_index0=line_objs[next_image_counter-1][i].changed
-            change_index1=line_objs[next_image_counter][i].changed
+            change_index0=line_objs[next_image_counter-1][i].changed[-1]
+            change_index1=line_objs[next_image_counter][i].changed[-1]
             
             if change_index0 > change_index1:
                 line_objs[next_image_counter][i]=copy.deepcopy(line_objs[next_image_counter-1][i])
-
+                if len(line_objs[next_image_counter][i].x)==1:
+                    #print('changed is -1')
+                    line_objs[next_image_counter][i].changed[-1]=-1
         else:
             line_objs[next_image_counter][i]=copy.deepcopy(line_objs[next_image_counter-1][i])
-
+            if len(line_objs[next_image_counter][i].x)==1:
+                #print('changed is -1')
+                line_objs[next_image_counter][i].changed[-1]=-1
 
 
 #%% image plotting
@@ -245,6 +175,7 @@ class image_plotting:
     def show(self):
         self.img_plot=self.ax.imshow(self.images[self.image_counter],cmap='gray')
         self.ax.set_title("image "+str(self.image_counter))
+        warnings.simplefilter("ignore", UserWarning)
         self.fig.tight_layout()
         plt.ion()
         for i in range(len(self._main_funcs)):
@@ -270,6 +201,10 @@ class image_plotting:
            
     #%%% image series navigation b/n
     def addfunc_image_series(self,times=None):
+        """
+        navigate multiple images with 'b' and 'n'
+        press 'b': go to image before  ;  'n' go to next image
+        """
         if times is None:
             times=np.arange(len(self.images))
         else:
@@ -302,19 +237,30 @@ class image_plotting:
 
     #%%% shifts
     def addfunc_shifts(self,shifts=None):
+        """
+        move overlays with the arrow keys
+        after activating this function with 'm'
+        deactivating with 'm' saves the shift
+        """
+        if "right" in plt.rcParams['keymap.forward']:
+            plt.rcParams['keymap.forward'].remove('right')
+            
+        if "left" in plt.rcParams['keymap.back']:
+            plt.rcParams['keymap.back'].remove('left')
+        
+        
         if not hasattr(self,"keyboard_funcs"):
             self.add_keyboard()
             
         if shifts is None:
             self.shifts={}
-            self.shifts[0]=np.array([0,0])
-            self.shifts[len(self.images)]=np.array([0,0])
+            self.shifts[0]=[0,0]
         else:
             self.shifts=copy.deepcopy(shifts)
 
         self.shift_active=False
 
-        self.keyboard_funcs["h"]=self._manual_shift
+        self.keyboard_funcs["m"]=self._manual_shift
         self.keyboard_funcs["up"]=self._move_up
         self.keyboard_funcs["down"]=self._move_down
         self.keyboard_funcs["left"]=self._move_left
@@ -326,21 +272,26 @@ class image_plotting:
         if not self.shift_active:
             print("shift activated")
             self.shift_active=True
+            self.shift_activated_at=self.image_counter
             print("shift is x="+str(shift[0])+" , y="+str(shift[1]))
             if self.image_counter not in self.shifts:
-                self.shifts[self.image_counter]=shift
+                self.shifts[self.image_counter]=copy.deepcopy(shift)
             
         else:
-            self.shift_active=False
-            print("shift deactivated resulting with:")
-            print("x="+str(shift[0])+" , y="+str(shift[1]))
-
-            if self.image_counter>0:
-                oldshift=self.get_shift(self.image_counter-1, self.shifts)
-                if oldshift[0]==shift[0] and oldshift[1]==shift[1]:
-                    print("no change happened")
-                    del self.shifts[self.image_counter]
-                    
+            if self.shift_activated_at == self.image_counter:
+                self.shift_active=False
+                print("shift deactivated resulting with:")
+                print("x="+str(shift[0])+" , y="+str(shift[1]))
+    
+                if self.image_counter>0:
+                    oldshift=self.get_shift(self.image_counter-1, self.shifts)
+                    if oldshift[0]==shift[0] and oldshift[1]==shift[1]:
+                        print("no change happened")
+                        del self.shifts[self.image_counter]    
+            else:
+                print("return to frame, where shift was activated:" +str(self.shift_activated_at))
+                
+                
     def _move_up(self):
         if self.shift_active:
             self.shifts[self.image_counter][1] +=1
@@ -359,22 +310,28 @@ class image_plotting:
                 
     @staticmethod
     def get_shift(image_counter,shifts):
-        keylist=np.sort(list(shifts.keys()))
-        for i in range(1,len(keylist)):
-            if keylist[i] > image_counter:
-                return shifts[keylist[i-1]]
-            else:
-                return shifts[keylist[-1]]
+        keylist=np.sort(list(shifts.keys()))[::-1]
+        for i in range(len(keylist)):
+            if keylist[i] <= image_counter:
+                return shifts[keylist[i]]
+
 
     #%%% image overlays
     def addfunc_img_overlays(self,orig_points,overlay_imgs,overlay_points):
+        """
+        overlay the image with other images
+        corresponding points in all images are needed
+        cycle through data with 'c'
+        """
+        if "c" in plt.rcParams['keymap.back']:
+            plt.rcParams['keymap.back'].remove('c')
+        
         if not hasattr(self,"keyboard_funcs"):
             self.add_keyboard()
             
         if not hasattr(self,"shifts"):
             self.shifts={}
             self.shifts[0]=[0,0]
-            self.shifts[len(self.images)]=[0,0]
             
         self.img_overlay=0
         self.img_max=len(overlay_imgs)
@@ -391,7 +348,8 @@ class image_plotting:
             dim=self.images[self.image_counter].shape
             p2=copy.deepcopy(self.orig_points)
             for i in range(len(p2)):
-                p2[i]-=shift#[::-1]
+                for j in range(2):
+                    p2[i,j]-=shift[j]#[::-1]
             
             im1s,im2, matrices, reswidth, resheight, width_shift, height_shift=align_images(
                 self.overlay_imgs, self.images[self.image_counter], self.overlay_points, p2,verbose=True)
@@ -410,13 +368,27 @@ class image_plotting:
 
     #%%% line features
     def addfunc_line_features(self,line_objs=None):
+        """
+        create lines by right clicking
+        pick lines by left clicking
+        to unpick a line press 'i'
+        to delete a line, pick it and press 'd'
+        to undo the last change to a line, pick it and press 'u'
+        to either show or hide the line overlay press 'l'
+        """
+        
+        if "l" in plt.rcParams['keymap.yscale']:
+            plt.rcParams['keymap.yscale'].remove('l')
+            plt.rcParams['keymap.yscale'].append('y')
+            print("matplotlib default keymap changed:")
+            print("'keymap.yscale': ['l'] -> ['y']")
+        
         if not hasattr(self,"keyboard_funcs"):
             self.add_keyboard()
 
         if not hasattr(self,"shifts"):
             self.shifts={}
             self.shifts[0]=[0,0]
-            self.shifts[len(self.images)]=[0,0]
         
         if line_objs is None:
             self.line_objs=[{} for i in range(len(self.images))]
@@ -436,7 +408,7 @@ class image_plotting:
         self.line_delete=False
         self.line_undo=False
 
-        self.keyboard_funcs["o"]=self._line_overlay        
+        self.keyboard_funcs["l"]=self._line_overlay        
         self.keyboard_funcs["i"]=self._inactivate_lines
         self.keyboard_funcs["u"]=self._undo_last_line_change
         self.keyboard_funcs["d"]=self._delete_lines
@@ -469,22 +441,25 @@ class image_plotting:
         self.artists={}
         
         for key in self.line_objs[self.image_counter]:
+            
             obj=self.line_objs[self.image_counter][key]
-            artist = self.ax.plot(np.array(obj.x)-shift[0], np.array(obj.y)-shift[1], 'x-', picker=5,alpha=0.6,c='c')[0]
-            artist.index = obj.index  
-            self.artists[key]=artist
-    
-        if self.line_active and self.line_index in self.line_objs[self.image_counter]:
-            self.artists[self.line_index].remove()
-            del self.artists[self.line_index]
-            obj=self.line_objs[self.image_counter][self.line_index]
-            if self.image_counter == self.line_activated_at:
-                artist = self.ax.plot(np.array(obj.x)-shift[0], np.array(obj.y)-shift[1], 'x-', picker=5,alpha=0.6,c='r')[0]
+            x=[x-shift[0] for x in obj.x ]
+            y=[y-shift[1] for y in obj.y ]
+            if not self.line_active:
+                artist = self.ax.plot(x,y, 'x-', picker=5,alpha=0.6,c='c')[0]
             else:
-                artist = self.ax.plot(np.array(obj.x)-shift[0], np.array(obj.y)-shift[1], 'x-', picker=5,alpha=0.6,c='y')[0]
-            artist.index = obj.index  
+                if key == self.line_index:                    
+                    if self.image_counter == self.line_activated_at:
+                        artist = self.ax.plot(x,y, 'x-', picker=5,alpha=0.6,c='r')[0]
+                    else:
+                        artist = self.ax.plot(x,y, 'x-', picker=5,alpha=0.6,c='y')[0]
+                else:
+                    artist = self.ax.plot(x,y, 'x-', picker=5,alpha=0.6,c='c')[0]
+
+
+            artist.index = key  
             self.artists[key]=artist
-        
+            
         self.ax.set_xlim(self.ax.get_xlim())
         self.ax.set_ylim(self.ax.get_ylim())
    
@@ -553,6 +528,7 @@ class image_plotting:
     
                 else:
                     self.backup=copy.deepcopy(obj)
+                    self.backup_index=self.line_index
                     obj=self._change_second_point_of_line(event,obj,shift)
                     if obj is None:
                         return
@@ -586,7 +562,7 @@ class image_plotting:
     def _first_point_of_line(self,event,shift):
         self.line_index=self.get_next_line_index(self.line_set)    
         print("add line "+str(self.line_index))
-        obj=line_object(event.xdata+shift[0],event.ydata+shift[1],self.line_index,self.image_counter) 
+        obj=line_object(event.xdata+shift[0],event.ydata+shift[1],self.image_counter) 
 
         self.line_objs[self.image_counter][self.line_index]=obj
 
@@ -611,11 +587,11 @@ class image_plotting:
         dist0=(event.xdata+shift[0]-obj.x[0])**2+(event.ydata+shift[1]-obj.y[0])**2
         dist1=(event.xdata+shift[0]-obj.x[1])**2+(event.ydata+shift[1]-obj.y[1])**2
         if dist0 > dist1:                   
-            obj.x[1]=event.xdata-shift[0]
-            obj.y[1]=event.ydata-shift[1]
+            obj.x[1]=event.xdata+shift[0]
+            obj.y[1]=event.ydata+shift[1]
         else:
-            obj.x[0]=event.xdata-shift[0]
-            obj.y[0]=event.ydata-shift[1]
+            obj.x[0]=event.xdata+shift[0]
+            obj.y[0]=event.ydata+shift[1]
             
         dx=obj.x[1]-obj.x[0]
         dy=obj.y[1]-obj.y[0]
@@ -645,22 +621,24 @@ class image_plotting:
                 self.line_active=False
 
                 obj=self.line_objs[self.image_counter][self.line_index]
-                self.artists[self.line_index].remove()
-                del self.artists[self.line_index]
                 
                 if len(obj.changed)<2:
                     print("to delete press 'd'")
                     
                 else:
-                    cond0=self.line_index ==self.backup.index
-                    cond1=obj.changed[-2] == self.backup.changed[-1]
-                    print(self.backup.changed)
-                    print(self.image_counter)
-                    print(self.line_index)
-                    if cond0 and cond1:
-                        self.line_objs[self.image_counter][self.line_index]=copy.deepcopy(self.backup)
-                    else:
+                    if not self.line_index ==self.backup_index:
                         print('backup is not aligned with active line')
+                        print('backup referes to line '+str(self.backup_index))
+                        print('active line refers to line '+str(self.line_index))
+                    else:
+                        print('change undone in images:')
+                        for i in range(obj.changed[2],len(self.images)):
+                            if self.backup_index in self.line_objs[i]:
+                                second_last_changed=self.line_objs[self.image_counter][self.line_index].changed[-2]
+                                if second_last_changed == self.backup.changed[-1]:
+                                    self.line_objs[self.image_counter][self.line_index]=copy.deepcopy(self.backup)
+                                    print(i)
+
                             
 
     #%%%% line deleting
@@ -703,6 +681,64 @@ class image_plotting:
         self.image_counter=new_image_counter
         self.img_plot.set_data(self.images[self.image_counter])
         self.ax.set_title("image "+str(self.image_counter))
+        
+        if self.line_overlay:
+            self._plot_overlay()
+            plt.gcf().canvas.draw()
+        
+        
 
+
+    #%% save as json        
+    def addfunc_save_as_json(self,filepath):
+        """
+        save lines and shifts as .json with 's'
+        filepath needed
+        """
+        self.filepath=filepath
+        if "s" in plt.rcParams['keymap.save']:
+            plt.rcParams['keymap.save'].remove('s')
+
+        self.keyboard_funcs["s"]=self._save_lines_and_shifts     
+
+
+    def _save_lines_and_shifts(self):
+        save_line_objs=[{} for i in range(len(self.images))]
+        for i in range(len(self.images)):
+            for j in self.line_objs[i]:
+                save_line_objs[i][j]={}
+                save_line_objs[i][j]['x']=self.line_objs[i][j].x
+                save_line_objs[i][j]['y']=self.line_objs[i][j].y
+                save_line_objs[i][j]['length']=self.line_objs[i][j].length
+                save_line_objs[i][j]['changed']=self.line_objs[i][j].changed
+                
+        with open(self.filepath, 'w') as fp:
+            json.dump([save_line_objs,self.shifts], fp)
+            
+        print("saved to "+self.filepath)
+
+def read_in_json(filepath):
+    with open(filepath, 'r') as fp:
+        save_line_objs,save_shifts = json.load(fp)
+    
+    shifts={}    
+    for i in save_shifts:
+        shifts[int(i)]=save_shifts[i]
+    
+    line_objs=[{} for i in range(len(save_line_objs))]
+    for i in range(len(save_line_objs)):
+        for j in save_line_objs[i]:
+            obj=line_object(0,0,0)
+            obj.x=save_line_objs[i][j]['x'] 
+            obj.y=save_line_objs[i][j]['y']
+            obj.length=save_line_objs[i][j]['length']
+            obj.changed=save_line_objs[i][j]['changed']
+            line_objs[int(i)][int(j)]=obj
+        
+    
+    return line_objs,shifts
+                
+        
+        
         
 

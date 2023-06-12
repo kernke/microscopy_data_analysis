@@ -933,7 +933,12 @@ def align_image_fast2(im2, reswidth, resheight, width_shift, height_shift):
 def align_images(im1s, im2, p1s, p2, verbose=False):
     # align p1 to p2
     # p2 higher resolution recommended
-    im1s,p1s=assure_multiple(im1s,p1s)
+    #im1s,p1s=assure_multiple(im1s,p1s)
+    single_image=False
+    if not len(im1s) == len(p1s):
+        single_image=True        
+        im1s=[im1s]
+        p1s=[p1s]
 
     allwidths = []
     allheights = []
@@ -953,9 +958,9 @@ def align_images(im1s, im2, p1s, p2, verbose=False):
         yf += np.arange(im1.shape[0] - 1).tolist()
         yf += (np.zeros(im1.shape[1] - 1) + im1.shape[0] - 1).tolist()
         yf += np.arange(1, im1.shape[0]).tolist()
-
+        
         img_matrix = np.stack([xf, yf, np.ones(len(xf))])
-
+        
         res = np.tensordot(matrix1, img_matrix, axes=1)
 
         allwidths.append(np.round(min(np.min(res[0]), 0)).astype(int))
@@ -997,8 +1002,14 @@ def align_images(im1s, im2, p1s, p2, verbose=False):
             im1, matrix1, (reswidth, resheight), flags=cv2.INTER_CUBIC
         )
         im1res.append(img1Reg)
-
-    if verbose:
-        return im1res, img2Reg, matrices, reswidth, resheight, width_shift, height_shift
+    
+    if single_image:
+        if verbose:
+            return im1res[0], img2Reg, matrices, reswidth, resheight, width_shift, height_shift
+        else:
+            return im1res[0], img2Reg
     else:
-        return im1res, img2Reg
+        if verbose:
+            return im1res, img2Reg, matrices, reswidth, resheight, width_shift, height_shift
+        else:
+            return im1res, img2Reg
