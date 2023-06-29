@@ -767,6 +767,7 @@ def two_imshow(images, absolute_positions, tile_dimensions, i, mask, zoom):
 
 
 image_counter = 0
+big_steps=False
 
 #%% manual_correction
 def manual_correction(images, absolute_positions, tile_dimensions, mask, zoom=0.5):
@@ -777,11 +778,20 @@ def manual_correction(images, absolute_positions, tile_dimensions, mask, zoom=0.
     # functions
     def press(event):
         global image_counter
+        global big_steps
         row = image_counter // tile_dimensions[1]
         column = image_counter % tile_dimensions[1]
         deltax = -abspos[row, column, 0] + absolute_positions[row, column, 0]
         deltay = -abspos[row, column, 1] + absolute_positions[row, column, 1]
 
+        if event.key == "b":
+            if big_steps:
+                big_steps=False
+                print("big steps deactivated")
+            else:
+                big_steps=True
+                print("big steps activated")
+                
         if event.key == "enter":
             image_counter += 1
 
@@ -808,17 +818,33 @@ def manual_correction(images, absolute_positions, tile_dimensions, mask, zoom=0.
                 image_counter = 0
                 return 0
         if event.key == "left":
-            absolute_positions[row, column, 1] += -1
-            deltay += -1
+            if big_steps:
+                absolute_positions[row, column, 1] += -10
+                deltay += -10                
+            else:
+                absolute_positions[row, column, 1] += -1
+                deltay += -1
         if event.key == "right":
-            absolute_positions[row, column, 1] += 1
-            deltay += 1
+            if big_steps:
+                absolute_positions[row, column, 1] += 10
+                deltay += 10                
+            else:
+                absolute_positions[row, column, 1] += 1
+                deltay += 1
         if event.key == "up":
-            absolute_positions[row, column, 0] += -1
-            deltax += -1
+            if big_steps:
+                absolute_positions[row, column, 0] += -10
+                deltax += -10                
+            else:
+                absolute_positions[row, column, 0] += -1
+                deltax += -1
         if event.key == "down":
-            absolute_positions[row, column, 0] += 1
-            deltax += 1
+            if big_steps:
+                absolute_positions[row, column, 0] += 10
+                deltax += 10                
+            else:
+                absolute_positions[row, column, 0] += 1
+                deltax += 1
         if event.key == "backspace":
             if image_counter == 1:
                 pass

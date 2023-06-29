@@ -174,7 +174,14 @@ class image_plotting:
 
     def show(self):
         self.img_plot=self.ax.imshow(self.images[self.image_counter],cmap='gray')
-        self.ax.set_title("image "+str(self.image_counter))
+        if hasattr(self,"times"):
+            timestamp=" at time "+str(np.round(self.times[self.image_counter],1))+" s"
+        else:                
+            timestamp=""
+            
+        self.ax.set_title("image "+str(self.image_counter)+timestamp)
+
+            
         warnings.simplefilter("ignore", UserWarning)
         self.fig.tight_layout()
         plt.ion()
@@ -205,9 +212,7 @@ class image_plotting:
         navigate multiple images with 'b' and 'n'
         press 'b': go to image before  ;  'n' go to next image
         """
-        if times is None:
-            times=np.arange(len(self.images))
-        else:
+        if times is not None:
             self.times=times
             
         if not hasattr(self,"keyboard_funcs"):
@@ -222,7 +227,14 @@ class image_plotting:
         else:
             self.image_counter +=1    
             self.img_plot.set_data(self.images[self.image_counter])
-            self.ax.set_title("image "+str(self.image_counter))
+            
+            if hasattr(self,"times"):
+                timestamp=" at time "+str(np.round(self.times[self.image_counter],1))+" s"
+            else:                
+                timestamp=""
+                
+            self.ax.set_title("image "+str(self.image_counter)+timestamp)
+            
             
             if hasattr(self, "line_objs"):
                 _progress_to_next_image(self.image_counter, self.line_objs) 
@@ -233,7 +245,13 @@ class image_plotting:
         else:
             self.image_counter -=1
             self.img_plot.set_data(self.images[self.image_counter])
-            self.ax.set_title("image "+str(self.image_counter))
+            
+            if hasattr(self,"times"):
+                timestamp=" at time "+str(np.round(self.times[self.image_counter],1))+" s"
+            else:                
+                timestamp=""
+
+            self.ax.set_title("image "+str(self.image_counter)+timestamp)
 
     #%%% shifts
     def addfunc_shifts(self,shifts=None):
@@ -363,7 +381,14 @@ class image_plotting:
         else:
             self.img_overlay=0
             self.img_plot.set_data(self.images[self.image_counter])
-            self.ax.set_title("image "+str(self.image_counter))
+            
+            if hasattr(self,"times"):
+                timestamp=" at time "+str(np.round(self.times[self.image_counter],1))+" s"
+            else:                
+                timestamp=""
+         
+            self.ax.set_title("image "+str(self.image_counter)+timestamp)
+
                 
 
     #%%% line features
@@ -680,7 +705,13 @@ class image_plotting:
                 
         self.image_counter=new_image_counter
         self.img_plot.set_data(self.images[self.image_counter])
-        self.ax.set_title("image "+str(self.image_counter))
+        
+        if hasattr(self,"times"):
+            timestamp=" at time "+str(np.round(self.times[self.image_counter],1))+" s"
+        else:                
+            timestamp=""
+            
+        self.ax.set_title("image "+str(self.image_counter)+timestamp)
         
         if self.line_overlay:
             self._plot_overlay()
@@ -716,6 +747,23 @@ class image_plotting:
             json.dump([save_line_objs,self.shifts], fp)
             
         print("saved to "+self.filepath)
+
+
+def save_as_json(filepath,line_objs,shifts):
+    save_line_objs=[{} for i in range(len(line_objs))]
+    for i in range(len(line_objs)):
+        for j in line_objs[i]:
+            save_line_objs[i][j]={}
+            save_line_objs[i][j]['x']=line_objs[i][j].x
+            save_line_objs[i][j]['y']=line_objs[i][j].y
+            save_line_objs[i][j]['length']=line_objs[i][j].length
+            save_line_objs[i][j]['changed']=line_objs[i][j].changed
+         
+    with open(filepath, 'w') as fp:
+        json.dump([save_line_objs,shifts], fp)
+    
+    print("saved to "+filepath)
+    
 
 def read_in_json(filepath):
     with open(filepath, 'r') as fp:

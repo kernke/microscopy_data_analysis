@@ -328,7 +328,7 @@ class line_analysis_object:
         """
         create an image where 
         """        
-        newimg,separator=make_line_overview(self.conpois, self.img)
+        newimg,separator=make_line_overview(self.conpois, self.image)
         self.line_image=newimg
         self.separator=separator
         self.properties.append("separator")
