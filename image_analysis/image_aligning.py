@@ -6,8 +6,8 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 from copy import deepcopy
-from .general_util import assure_multiple
-
+from .general_util import assure_multiple,peak_com2d
+from .image_processing import img_periodic_tiling,img_to_uint16
 # def phase_correlation(im1,im2):
 #    return (ifftn(fftn(im1)*ifftn(im2))).real
 
@@ -46,7 +46,7 @@ def stitch_auto(im1, im2, mode=0, zerogone=False, half=0):
     hor0 = 0
 
     if mode == 0:
-        if pc[0] > pcs[0] / 2.5:
+        if pc[0] > pcs[0] / 2:#.5
             hs = int(pcs[0] / 2) - 1
             pcm2 = phase_correlation(im1[hs : 2 * hs, :], im2[:hs, :])
             if zerogone:
@@ -56,7 +56,7 @@ def stitch_auto(im1, im2, mode=0, zerogone=False, half=0):
                 vert0 = pcs[0] - pc[0]
                 pc[0] = 0
 
-        if pc[1] > pcs[1] / 2.5:
+        if pc[1] > pcs[1] / 2:#.5
             hs = int(pcs[1] / 2) - 1
             pcm2 = phase_correlation(im1[:, hs : 2 * hs], im2[:, :hs])
             if zerogone:
@@ -162,7 +162,7 @@ def stitch_close(im1, im2):
     vert0 = 0
     hor0 = 0
 
-    if pc[0] > pcs[0] / 2.0:
+    if pc[0] > pcs[0] / 2.5:
 
         vert0 = pcs[0] - pc[0]
         pc[0] = 0
@@ -223,14 +223,14 @@ def align(im1, im2):
 
     pc_copy = np.copy(pc)
 
-    if pc[0] > pcs[0] / 2.5:
+    if pc[0] > pcs[0] / 2:#.5
         hs = int(pcs[0] / 2) - 1
         pcm2 = phase_correlation(im1[hs : 2 * hs, :], im2[:hs, :])
         pc2 = pos_from_pcm_short(pcm2)
         if pcm2[pc2[0], pc2[1]] < pcm[pc_copy[0], pc_copy[1]]:
             pc[0] = pc[0] - pcs[0]
 
-    if pc[1] > pcs[1] / 2.5:
+    if pc[1] > pcs[1] / 2:#.5
         hs = int(pcs[1] / 2) - 1
         pcm2 = phase_correlation(im1[:, hs : 2 * hs], im2[:, :hs])
         pc2 = pos_from_pcm_short(pcm2)
@@ -239,6 +239,102 @@ def align(im1, im2):
 
     return pc
 
+#%% align precise
+def align_precise(im1, im2,delta=None,show=False):
+    pcm = phase_correlation(im1, im2)
+    #adder=0.0*np.min(np.abs(pcm))
+    pcm -= np.min(pcm)#- adder
+    pcb,orig=img_periodic_tiling(pcm)
+    rows=int(orig[0][0]//2)
+    cols=int(orig[1][0]//2)
+    pcr=pcb[rows:3*rows,cols:3*cols]
+    if delta is None:
+        delta=min(int(rows//2),int(cols//2))
+
+    compos,maxpos,delta_used=peak_com2d(pcr,delta=delta)
+    if show:
+        delt=2*delta
+        plt.imshow((pcr[maxpos[0]-delt:maxpos[0]+delt,maxpos[1]-delt:maxpos[1]+delt]))
+        plt.plot(compos[1]-(maxpos[1]-delt),compos[0]-(maxpos[0]-delt),'rx')
+        plt.plot(delt,delt,'wx')
+
+        plt.show()
+        
+    pc=np.zeros(2)
+    pc[0]=(compos[0]+rows)%orig[0][0]
+    pc[1]=(compos[1]+cols)%orig[1][0]
+    
+    pcs = np.array(np.shape(pcm))
+
+    if pc[0] > pcs[0] / 2.:
+        pc[0] = pc[0] - pcs[0]
+
+    if pc[1] > pcs[1] / 2.:
+        pc[1] = pc[1] - pcs[1]
+
+    return pc
+
+
+def stack_shift_precise(imgs,delta=None,show=False):
+    img=imgs[0]
+    shifts=np.zeros([len(imgs),2])
+    for i in range(len(imgs)-1):
+        shifts[i+1]=align_precise(img,imgs[i+1],delta=delta,show=show)
+    return shifts
+
+def stack_align_precise(imgs,shifts):
+
+    ma_sh=np.max(shifts,axis=0)
+    mi_sh=np.min(shifts,axis=0)
+    to_sh=ma_sh-mi_sh
+    to_sh_int=np.round(to_sh).astype(int)
+    
+    size=np.array(imgs[0].shape,dtype=int)
+    newsize=size+to_sh_int
+ 
+    x, y = np.meshgrid(np.arange(newsize[1]), np.arange(newsize[0]))
+    
+    res=[]
+
+    nshifts = shifts- mi_sh
+    for i in range(len(imgs)):
+        newx=x-nshifts[i,1]
+        newy=y-nshifts[i,0]
+        
+
+        tres=cv2.remap(img_to_uint16(imgs[i]), newx.astype(np.float32), 
+                       newy.astype(np.float32), 
+                          interpolation=cv2.INTER_CUBIC,
+                          borderValue= 0, borderMode=cv2.BORDER_CONSTANT)
+        
+        res.append(tres)
+    
+    return res
+
+
+
+
+
+def stack_shifting(imgs):
+    img=imgs[0]
+    shifts=np.zeros([len(imgs),2],dtype=int)
+    for i in range(len(imgs)-1):
+        shifts[i+1]=align(img,imgs[i+1])
+    return shifts
+
+def stack_align(imgs,shifts):
+    shifts=shifts.astype(int)
+    ma_sh=np.max(shifts,axis=0)
+    mi_sh=np.min(shifts,axis=0)
+    to_sh=ma_sh-mi_sh
+    
+    size=imgs[0].shape
+    new=np.zeros([len(imgs),size[0]+to_sh[0],size[1]+to_sh[1]])
+    nshifts = shifts-mi_sh
+    for i in range(len(imgs)):        
+        new[i,nshifts[i,0]:nshifts[i,0]+size[0],nshifts[i,1]:nshifts[i,1]+size[1]]=imgs[i]
+    
+    return new
 
 #%% pos_from_pcm
 
@@ -899,6 +995,7 @@ def manual_correction(images, absolute_positions, tile_dimensions, mask, zoom=0.
         + "and to end the program \n(when pressing enter after the last image).\n"
         + "\nPress backspace to go back to a previous image.\n"
         + "\nUse left, right, up and down arrow keys to position \nthe image marked by red + showing the corners.\n"
+        + "\nPress 'b' to switch between big steps (10 pixels) and normal steps (1 pixel)"
         + "\nFor closing the program at any point press esc \n(to reset internal counters).",
     )
     plt.show()

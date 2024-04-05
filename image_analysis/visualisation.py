@@ -99,30 +99,31 @@ def vis_zoom(img, zoom_center, final_height, steps, gif_resolution_to_final=1):
 
 #%%  plot_sortout
 def vis_plot_line_ids(image, sortout, legend=True, alpha=0.5, markersize=0.5):
-    plt.figure(figsize=(12, 10))
+    px = 1/plt.rcParams['figure.dpi']  
+    plt.figure(figsize=(1200*px, 1000*px))
     plt.imshow(image, cmap="gray")
     colors = ["b", "r", "g", "c", "m", "y"]
     for j in range(len(sortout)):
         count = 0
         for i in sortout[j]:
             if count == 0:
-                plt.plot(
+                plt.scatter(
                     i[:, 1],
                     i[:, 0],
-                    "o",
                     c=colors[j],
                     alpha=alpha,
                     label=str(j),
-                    markersize=markersize,
+                    s=markersize,
+                    edgecolors='none'
                 )
             else:
-                plt.plot(
+                plt.scatter(
                     i[:, 1],
                     i[:, 0],
-                    "o",
                     c=colors[j],
                     alpha=alpha,
-                    markersize=markersize,
+                    s=markersize,
+                    edgecolors='none'
                 )
             count += 1
     if legend == True:
@@ -392,7 +393,7 @@ class image_plotting:
                 
 
     #%%% line features
-    def addfunc_line_features(self,line_objs=None):
+    def addfunc_line_features(self,line_objs=None,line_set=None):
         """
         create lines by right clicking
         pick lines by left clicking
@@ -417,14 +418,21 @@ class image_plotting:
         
         if line_objs is None:
             self.line_objs=[{} for i in range(len(self.images))]
-            self.line_set=set()
+            if line_set is None:
+                self.line_set=set()
+            else:
+                self.line_set=line_set
+                
             self.line_index=0
         else:
             self.line_objs=line_objs
-            self.line_set=set()
-            for i in self.line_objs:
-                for j in i:
-                    self.line_set.add(j)
+            if line_set is None:
+                self.line_set=set()
+                for i in self.line_objs:
+                    for j in i:
+                        self.line_set.add(j)
+            else:
+                self.line_set=line_set
             self.line_index=0
             
         self.artists={}
@@ -501,6 +509,7 @@ class image_plotting:
             if self.line_overlay:
                 self._plot_overlay()
             plt.gcf().canvas.draw()
+    
     
     #%%%% line inactivating
     def _inactivate_lines(self):
@@ -686,7 +695,183 @@ class image_plotting:
         else:
             print("no line selected to delete")
 
-    
+    #%%%
+    def _pick_lines_specialised(self,event):
+        shift=self.get_shift(self.image_counter, self.shifts)
+        #leftclick_id=1
+        if event.mouseevent.button == 1:
+            old_line_index=self.line_index
+            old_state= self.line_active
+            self.line_index=event.artist.index
+            self.line_active=True
+            self.line_activated_at=self.image_counter
+            
+            obj=self.line_objs[self.image_counter][self.line_index]
+                
+            if old_line_index == self.line_index and old_state:
+                
+                if not hasattr(self, 'end_artist_index'):
+                    self.end_artist_index=0      
+                    self.end_artist=self.ax.plot(obj.x[0],obj.y[0],'o',c='r',markersize=6)[0]
+                elif self.end_artist_index == 0:
+                    self.end_artist.remove()
+                    self.end_artist_index +=1
+                    self.end_artist=self.ax.plot(obj.x[1],obj.y[1],'o',c='r',markersize=6)[0]
+                    
+                else:
+                    self.end_artist.remove()
+                    del self.end_artist
+                    del self.end_artist_index
+                       
+            elif self.redirect_connect:
+                self.ending_states[old_line_index][self.end_artist_index].append(self.line_index)
+                self.redirect_connect=False
+                print(str(old_line_index)+ " connected with "+str(self.line_index))
+                
+                old_obj=self.line_objs[self.image_counter][old_line_index]
+                
+                dist0=(obj.x[0]-old_obj.x[self.end_artist_index])**2 + (obj.y[0]-old_obj.y[self.end_artist_index])**2
+                dist1=(obj.x[1]-old_obj.x[self.end_artist_index])**2 + (obj.y[1]-old_obj.y[self.end_artist_index])**2
+
+                if dist1 > dist0:
+                    new_index=0
+                else:
+                    new_index=1
+                
+                if self.line_index in self.ending_states:
+                    if len(self.ending_states[self.line_index][new_index])==0:
+                        self.ending_states[self.line_index][new_index]+=[self.image_counter,old_line_index]
+                        print(str(self.line_index)+ " connected with "+str(old_line_index))
+                    else:
+                        print("line " +str(self.line_index)+' ending '+str(new_index)
+                              +' state already determined')
+                else:
+                    self.ending_states[self.line_index]=[[],[]]
+                    self.ending_states[self.line_index][new_index]+=[self.image_counter,old_line_index]
+                    print(str(self.line_index)+ " connected with "+str(old_line_index))
+
+                
+                
+                
+            else:
+                print("line "+str(event.artist.index)+" activated")
+                if hasattr(self, 'end_artist_index'):
+                    self.end_artist.remove()
+                    del self.end_artist
+                    del self.end_artist_index      
+                
+            if self.line_overlay:
+                self._plot_overlay()
+            plt.gcf().canvas.draw()
+
+
+    #%%%
+    def _mark_exit(self):
+        if self.line_active==False:
+            if hasattr(self, 'show_endings'):
+                for i in self.show_endings:
+                    i.remove()
+                del self.show_endings
+            else:
+                self.show_endings=[]
+                for i in self.ending_states:
+                    for j in range(2):
+                        if len(self.ending_states[i][j])>0:
+                            obj=self.line_objs[self.image_counter][i]
+                            xc=obj.x[j]
+                            yc=obj.y[j]    
+                            self.show_endings.append(self.ax.plot(xc,yc,'o',c='c',markersize=6)[0])
+
+            if self.line_overlay:
+                self._plot_overlay()
+            plt.gcf().canvas.draw()
+                    
+            
+        else:
+            if hasattr(self, 'end_artist_index'):
+                if self.line_index in self.ending_states:
+                    if len(self.ending_states[self.line_index][self.end_artist_index])==0:
+                        self.ending_states[self.line_index][self.end_artist_index]+=[self.image_counter,-1]
+                        print("line " +str(self.line_index)+' ending '+str(self.end_artist_index)
+                              +str(" marked as 'exited region of interest'"))
+                    else:
+                        print('ending state already determined')
+                else:
+                    self.ending_states[self.line_index]=[[],[]]
+                    self.ending_states[self.line_index][self.end_artist_index]+=[self.image_counter,-1]
+                    print("line " +str(self.line_index)+' ending '+str(self.end_artist_index)
+                          +str(" marked as 'exited region of interest'"))
+            else:
+                print("no endpoint active to mark")
+
+    def _mark_redirection(self):
+        if hasattr(self, 'end_artist_index'):
+            
+            
+            self.redirect_connect=True
+
+            if self.line_index in self.ending_states:
+                if len(self.ending_states[self.line_index][self.end_artist_index])==0:
+                    self.ending_states[self.line_index][self.end_artist_index]+=[self.image_counter]
+                    print("line " +str(self.line_index)+' ending '+str(self.end_artist_index)
+                        +" marked for connection")
+                else:
+                    print('ending state already determined')
+            else:
+                self.ending_states[self.line_index]=[[],[]]
+                self.ending_states[self.line_index][self.end_artist_index]+=[self.image_counter]
+                print("line " +str(self.line_index)+' ending '+str(self.end_artist_index)
+                    +" marked for connection")
+
+        else:
+            print("no endpoint active to mark")
+
+
+    def _mark_double(self):
+        if hasattr(self, 'end_artist_index'):
+            if self.line_index in self.ending_states:
+                if len(self.ending_states[self.line_index][self.end_artist_index])>-1:
+                    if self.line_index in self.doubles:
+                        self.doubles[self.line_index][self.end_artist_index]=True
+                    else:
+                        self.doubles[self.line_index]=np.zeros(2,dtype=bool)
+                        self.doubles[self.line_index][self.end_artist_index]=True
+                    print("line " +str(self.line_index)+' ending '+str(self.end_artist_index)
+                        +" marked as double line")
+            else:
+                print("redirect connect must be applied before")
+        else:
+            print("no endpoint active to mark")
+
+    #%% Filter for details
+    def addfunc_endpoint_details(self):
+        """
+        pick lines by left clicking
+        to unpick a line press 'i'
+        to delete a line, pick it and press 'd'
+        to undo the last change to a line, pick it and press 'u'
+        to either show or hide the line overlay press 'l'
+        """
+        
+        if not ['pick_event',self._pick_lines] in self._main_args:
+            print("line_features necessary")
+        
+        if not hasattr(self,"keyboard_funcs"):
+            self.add_keyboard()
+            
+            
+        self.keyboard_funcs["w"]=self._mark_double            
+        self.keyboard_funcs["e"]=self._mark_exit
+        self.keyboard_funcs["r"]=self._mark_redirection
+        
+        self._main_args.remove(['pick_event',self._pick_lines])
+        self._main_args.append(['pick_event',self._pick_lines_specialised])
+        
+        self.ending_states={}
+        self.doubles={}
+        self.redirect_connect=False
+        
+
     #%% Text input
     def addfunc_text_input(self):
         self.axbox = self.fig.add_axes([0.05, 0.05, 0.05, 0.075])
@@ -734,6 +919,7 @@ class image_plotting:
 
 
     def _save_lines_and_shifts(self):
+        print('start saving')
         save_line_objs=[{} for i in range(len(self.images))]
         for i in range(len(self.images)):
             for j in self.line_objs[i]:
@@ -745,11 +931,19 @@ class image_plotting:
                 
         with open(self.filepath, 'w') as fp:
             json.dump([save_line_objs,self.shifts], fp)
+
+        str_index=self.filepath[::-1].find('.')
+        fp2=self.filepath[:-str_index-1]
+        fp2 += '_set.json'
+        
+        with open(fp2, 'w') as fp:
+            json.dump(list(self.line_set), fp)
             
         print("saved to "+self.filepath)
 
 
-def save_as_json(filepath,line_objs,shifts):
+def save_as_json(filepath,line_objs,shifts,line_set):
+    print('start saving')
     save_line_objs=[{} for i in range(len(line_objs))]
     for i in range(len(line_objs)):
         for j in line_objs[i]:
@@ -762,10 +956,17 @@ def save_as_json(filepath,line_objs,shifts):
     with open(filepath, 'w') as fp:
         json.dump([save_line_objs,shifts], fp)
     
+    str_index=filepath[::-1].find('.')
+    fp2=filepath[:-str_index-1]
+    fp2 += '_set.json'
+    
+    with open(fp2, 'w') as fp:
+        json.dump(list(line_set), fp)
+    
     print("saved to "+filepath)
     
 
-def read_in_json(filepath):
+def read_in_json_old(filepath):
     with open(filepath, 'r') as fp:
         save_line_objs,save_shifts = json.load(fp)
     
@@ -785,8 +986,39 @@ def read_in_json(filepath):
         
     
     return line_objs,shifts
-                
+
+#%%
+def read_in_json(filepath):
+    with open(filepath, 'r') as fp:
+        save_line_objs,save_shifts = json.load(fp)
+
+    str_index=filepath[::-1].find('.')
+    fp2=filepath[:-str_index-1]
+    fp2 += '_set.json'
+
+    with open(fp2, 'r') as fp:
+        line_set = json.load(fp)
+    
+    line_set=set(line_set)
+    
+    print('test')
+    
+    shifts={}    
+    for i in save_shifts:
+        shifts[int(i)]=save_shifts[i]
+    
+    line_objs=[{} for i in range(len(save_line_objs))]
+    for i in range(len(save_line_objs)):
+        for j in save_line_objs[i]:
+            obj=line_object(0,0,0)
+            obj.x=save_line_objs[i][j]['x'] 
+            obj.y=save_line_objs[i][j]['y']
+            obj.length=save_line_objs[i][j]['length']
+            obj.changed=save_line_objs[i][j]['changed']
+            line_objs[int(i)][int(j)]=obj
         
+    
+    return line_objs,shifts,line_set        
         
         
 

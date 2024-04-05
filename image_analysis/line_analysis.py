@@ -1006,6 +1006,9 @@ class line_analysis_object:
                 if lengths[i][j] < threshold:
                     sortoutids[-1].append(j)
                     sortout[-1].append(self.conpois[i][j])
+        
+        for i in sortoutids:
+            print(len(i))
 
         if not test:
             self.sort_ids_out(sortoutids)

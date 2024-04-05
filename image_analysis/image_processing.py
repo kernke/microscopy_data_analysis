@@ -66,6 +66,12 @@ def img_to_uint8(img):
     return (img / np.max(img) * 255.5).astype(np.uint8)
 
 
+def img_to_uint16(img):
+    img -= np.min(img)
+    return (img / np.max(img) * 65535.5).astype(np.uint16)
+
+
+
 #%% noise_line_suppression
 
 
@@ -261,6 +267,7 @@ def img_periodic_tiling(img, tiles=3):
     -------
     tiled : tiles*M x tiles*N array
     orig : tuples containing the bounding coordinates of the center image
+           ((lower_row_limit,upper_row_limit),(lower_column_limit,upper_column_limit)
     """
     s = np.array(img.shape)
     tiled = np.zeros(s * tiles, dtype=img.dtype)

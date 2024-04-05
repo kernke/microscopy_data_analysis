@@ -16,6 +16,34 @@ import matplotlib.pyplot as plt
 from .image_processing import img_make_square
 import os
 
+import ncempy.io as nio
+from contextlib import redirect_stdout
+import io
+
+
+#%% get_dm4_with_metadata
+def get_dm4_with_metadata(filepath):
+    relevant_list=["Grating","Objective focus (um)","Stage X","Stage Y","Stage Z","Stage Beta","Stage Alpha","Indicated Magnification",
+    "Bandpass","Detector","Filter","PMT HV","Sensitivity","Slit Width","Sample Time","Image Height","Image Width",
+     "Number Summing Frames","Voltage","Lightpath","Signal Name"]    
+    
+    f = io.StringIO()
+    with redirect_stdout(f):
+        dmd=nio.dm.dmReader(filepath,verbose=True)
+    metadata = f.getvalue()
+    
+    result=dict()
+
+    for i in range(len(relevant_list)):
+        start=metadata.find("curTagValue = "+relevant_list[i])
+        end=metadata[start:].find("\n")
+        end+=start
+        start+=len("curTagValue = "+relevant_list[i])+2
+        result[relevant_list[i]]=metadata[start:end]
+
+    return dmd,result    
+
+
 #%% get_files_of_format
 def get_files_of_format(path,ending):
     files = os.listdir(path)
@@ -103,11 +131,14 @@ def peak_com(y, delta=None, roi=None):
 
 
 def peak_com2d(data, delta=None, roi=None):
-
-    if len(np.shape(delta)) == 0:
-        delt = [delta, delta]
+        
+    if delta is None:
+        delt=np.zeros(2)+max(data.shape)
     else:
-        delt = delta
+        if isinstance(delta,int):
+            delt = np.array([delta, delta]).astype(int)
+        else:
+            delt = np.array(delta).astype(int)
 
     if roi is None:
         dat = data
@@ -119,13 +150,15 @@ def peak_com2d(data, delta=None, roi=None):
     disty = dist % dat.shape[1]
     distx = dist // dat.shape[1]
 
-    delt[0] = min(distx, dat.shape[0] - distx)
-    delt[1] = min(disty, dat.shape[1] - disty)
+    delt[0] = min(distx, dat.shape[0] - distx,delt[0])
+    delt[1] = min(disty, dat.shape[1] - disty,delt[1])
+    
 
     xstart = distx - delt[0]
-    xend = distx + delt[0]
+    xend = distx + delt[0]+1
     ystart = disty - delt[1]
-    yend = disty + delt[1]
+    yend = disty + delt[1]+1
+
     dat2 = dat[xstart:xend, ystart:yend]
 
     y = np.sum(dat2, axis=0)
@@ -143,7 +176,7 @@ def peak_com2d(data, delta=None, roi=None):
     xpos += roi[0][0]
     ypos += roi[1][0]
 
-    return np.array([xpos, ypos]), np.array([mvposx, mvposy])
+    return np.array([xpos, ypos]), np.array([mvposx, mvposy]),delt
 
 
 #%%
@@ -418,7 +451,7 @@ def get_max(z):
 
 #%% pascal triangle
 def pascal_numbers(n):
-    """Returns the n-th row of Pascal's triangle'"""
+    """Returns the n-th row of Pascal's triangle"""
     return scipy.special.comb(n, np.arange(n + 1))
 
 
