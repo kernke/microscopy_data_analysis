@@ -6,10 +6,10 @@ from setuptools import setup
 from setuptools import find_packages
 
 
-setup(name='image analysis',
+setup(name='microscopic_data_analysis',
       version='0.1',
-      description='image analysis',
-      url='https://github.com/kernke/image_analysis',
+      description='microscopic_data_analysis',
+      url='https://github.com/kernke/microscopic_data_analysis',
       author='Kernke',
       author_email='r.s.kernke@gmail.com',
       license='AGPL-3.0',
