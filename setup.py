@@ -22,5 +22,7 @@ setup(name='microscopic_data_analysis',
             'numba',
             'h5py',
             'scikit-image',
-            'imageio'
+            'imageio',
+            'sphinx-rtd-theme',
+            'ncempy'
                ])

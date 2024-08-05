@@ -17,9 +17,9 @@ sys.path.insert(0, os.path.abspath('..'))
 
 # -- Project information -----------------------------------------------------
 
-project = 'image analysis docs'
+project = 'microscopic_data_analysis docs'
 copyright = '2024, Kernke'
-author = 'Kernke'
+author = 'Robert Kernke'
 release = '1.0.0'
 
 # -- General configuration ---------------------------------------------------
