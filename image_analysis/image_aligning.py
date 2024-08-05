@@ -7,7 +7,7 @@ import cv2
 import matplotlib.pyplot as plt
 from copy import deepcopy
 from .general_util import assure_multiple,peak_com2d
-from .image_processing import img_periodic_tiling,img_to_uint16
+from .image_processing import img_periodic_tiling,img_to_uint16,img_to_half_int16
 # def phase_correlation(im1,im2):
 #    return (ifftn(fftn(im1)*ifftn(im2))).real
 
@@ -240,7 +240,7 @@ def align(im1, im2):
     return pc
 
 #%% align precise
-def align_precise(im1, im2,delta=None,show=False):
+def align_precise(im1, im2,delta=None,show=False,artifacts=None):
     pcm = phase_correlation(im1, im2)
     #adder=0.0*np.min(np.abs(pcm))
     pcm -= np.min(pcm)#- adder
@@ -251,13 +251,24 @@ def align_precise(im1, im2,delta=None,show=False):
     if delta is None:
         delta=min(int(rows//2),int(cols//2))
 
+    if artifacts is None:
+        pass
+    else:
+        center=pcr.shape[0]//2,pcr.shape[1]//2
+        pcr[center[0],:]*=artifacts
+        pcr[:,center[1]]*=artifacts
+    
+    delt=2*delta
     compos,maxpos,delta_used=peak_com2d(pcr,delta=delta)
-    if show:
-        delt=2*delta
-        plt.imshow((pcr[maxpos[0]-delt:maxpos[0]+delt,maxpos[1]-delt:maxpos[1]+delt]))
-        plt.plot(compos[1]-(maxpos[1]-delt),compos[0]-(maxpos[0]-delt),'rx')
-        plt.plot(delt,delt,'wx')
 
+    if show:
+        plt.imshow((pcr[maxpos[0]-delt:maxpos[0]+delt,maxpos[1]-delt:maxpos[1]+delt]))
+        plt.plot(compos[1]-(maxpos[1]-delt),compos[0]-(maxpos[0]-delt),'rx',label='center of mass')
+        plt.plot(delt,delt,'wx',label='global max')
+        plt.plot(-maxpos[1]+pcr.shape[1]//2+delt,-maxpos[0]+pcr.shape[0]//2+delt,'x',c='fuchsia',label='origin')
+
+        plt.legend()
+        plt.colorbar()
         plt.show()
         
     pc=np.zeros(2)
@@ -275,12 +286,24 @@ def align_precise(im1, im2,delta=None,show=False):
     return pc
 
 
-def stack_shift_precise(imgs,delta=None,show=False):
-    img=imgs[0]
+def stack_crop_shifts(stack,shifts):
+    delta=np.max(shifts,axis=0)-np.min(shifts,axis=0)
+    delta=delta.astype(int)
+    if delta[0]==0:
+        res=stack[:,:,delta[1]:-delta[1]]
+    elif delta[1]==0:
+        res=stack[:,delta[0]:-delta[0],:]
+    else:        
+        res=stack[:,delta[0]:-delta[0],delta[1]:-delta[1]]
+    return res    
+
+def stack_shift_precise(imgs,delta=None,show=False,artifacts=None):
+    #img=imgs[0]
     shifts=np.zeros([len(imgs),2])
     for i in range(len(imgs)-1):
-        shifts[i+1]=align_precise(img,imgs[i+1],delta=delta,show=show)
-    return shifts
+        shifts[i+1]=align_precise(imgs[i],imgs[i+1],delta=delta,show=show,artifacts=artifacts)
+        
+    return np.cumsum(shifts,axis=0)#shifts
 
 def stack_align_precise(imgs,shifts):
 
@@ -312,15 +335,36 @@ def stack_align_precise(imgs,shifts):
     return res
 
 
+def fine_tuning_shifts(aligned_stack,delta=4):
+    stack=np.zeros([aligned_stack.shape[0],aligned_stack.shape[1]+1,aligned_stack.shape[2]+1],dtype=np.int16)
+    for i in range(len(stack)):
 
+        stack[i,:-1,:-1]=img_to_half_int16(aligned_stack[i])
+        
+    changes=np.zeros([2*delta+1,2*delta+1])
+    shifts=np.zeros([len(stack),2],dtype=int)
+
+    deltarange=np.arange(-delta,delta+1,1)
+    Nd=len(deltarange)
+    for i in range(len(stack)-1):
+        img0=stack[i][delta:-delta-1,delta:-delta-1]
+        for j in range(Nd):
+            deltaj=deltarange[j]
+            for k in range(Nd):
+                deltak=deltarange[k]
+                changes[j,k]=np.sum(np.abs(img0-stack[i+1][delta+deltaj:-(delta-deltaj)-1,delta+deltak:-(delta-deltak)-1]))
+        idx0,idx1=np.where(changes==np.min(changes))
+        shifts[i]=idx0[0],idx1[0]
+    shifts+= -delta
+    return -np.cumsum(shifts,axis=0)
 
 
 def stack_shifting(imgs):
-    img=imgs[0]
+    #img=imgs[0]
     shifts=np.zeros([len(imgs),2],dtype=int)
     for i in range(len(imgs)-1):
-        shifts[i+1]=align(img,imgs[i+1])
-    return shifts
+        shifts[i+1]=align(imgs[i],imgs[i+1])
+    return np.cumsum(shifts,axis=0)#shifts
 
 def stack_align(imgs,shifts):
     shifts=shifts.astype(int)

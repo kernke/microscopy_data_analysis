@@ -49,6 +49,17 @@ def _aysmmetric_non_maximum_suppression(
 
 #%% morphLaplace
 def img_morphLaplace(image, kernel):
+    """
+    
+
+    Args:
+        image (TYPE): DESCRIPTION.
+        kernel (TYPE): DESCRIPTION.
+
+    Returns:
+        TYPE: DESCRIPTION.
+
+    """
     return cv2.erode(image, kernel) + cv2.dilate(image, kernel) - 2 * image - 128
 
 
@@ -61,21 +72,48 @@ def img_gammaCorrection(src, gamma):
 
     return cv2.LUT(src, table)
 #%%
-def img_to_uint8(img):
+def img_to_uint8(img,imgmax=255):
     img -= np.min(img)
-    return (img / np.max(img) * 255.5).astype(np.uint8)
+    return (img / np.max(img) * (imgmax+0.5)).astype(np.uint8)
 
-
-def img_to_uint16(img):
+def img_to_uint16(img,imgmax=65535):
     img -= np.min(img)
-    return (img / np.max(img) * 65535.5).astype(np.uint16)
+    return (img / np.max(img) * (imgmax+0.5)).astype(np.uint16)
 
+def img_to_int8(img,imgmax=255):
+    img -= np.min(img)
+    return (img / np.max(img) * (imgmax+0.5) -128).astype(np.int8)
+
+def img_to_int16(img,imgmax=65535):
+    img -= np.min(img)
+    return (img / np.max(img) * (imgmax+0.5) -32768).astype(np.int16)
+
+
+def img_to_half_int8(img,imgmax=255):
+    img -= np.min(img)
+    return (img / np.max(img) * ((imgmax+0.5)/2) -64).astype(np.int8)
+
+
+def img_to_half_int16(img,imgmax=65535):
+    img -= np.min(img)
+    return (img / np.max(img) * ((imgmax+0.5)/2)-16384).astype(np.int16)
 
 
 #%% noise_line_suppression
 
 
 def img_noise_line_suppression(image, ksize_erodil):
+    """
+    sdofijsod
+
+    Args:
+        image (TYPE): DESCRIPTION.
+        ksize_erodil (TYPE): DESCRIPTION.
+
+    Returns:
+        TYPE: DESCRIPTION.
+
+    """
     erod_img = cv2.erode(image, np.ones([1, ksize_erodil]))
     return cv2.dilate(erod_img, np.ones([1, ksize_erodil]))
 

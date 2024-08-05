@@ -7,6 +7,8 @@ from .image_processing import img_rotate_bound
 from .general_util import make_mask
 import matplotlib.pyplot as plt
 import cv2
+from scipy import ndimage
+from scipy.spatial.distance import cdist
 
 
 #%% optimal rotation /deprecated
@@ -137,6 +139,162 @@ def enhance_lines_prototype(
         # res *= tres
 
     return tres * newmask, newmask, log
+
+#%%
+def normalized_spectra(data,se_image,wavelengths,boundary_offset=0,minimum_pix=25,
+                       ksize1=20,ksize2=40,ksize3=10,upper_threshold=1.1,lower_threshold=0.95):
+    """
+    ksize1:proportional to the boundary between island and ring
+    ksize2:proportional to the width of the ring
+    ksize3:closing gaps in the mask to obtain the spectrum of SiO
+    """
+    # obtain binary image with areas holding the value 1 represent the crystal islands
+    # and the area with value 0 is the SiO-matrix
+    binary_image=se_image>np.mean(se_image)*upper_threshold
+    binary_image=binary_image*1
+    if boundary_offset>0:
+        mask=np.zeros(binary_image.shape)
+        mask[boundary_offset:-boundary_offset,boundary_offset:-boundary_offset]=1
+        binary_image=(binary_image*mask).astype(np.uint8)
+
+    # label all the islands, that contain atleast the minimum amount of pixels
+    # also get a center-position of island by a mean of all pixel-positions of that island
+    separated_image,number_of_islands=ndimage.label(binary_image)
+    spots=[]
+    centers=[]
+    for i in range(number_of_islands):
+        index1,index2=np.where(separated_image==i)
+        if len(index1)<minimum_pix:
+            pass
+        else:
+            if i ==0:
+                #pass
+                si_matrix=(index1,index2)
+            else:
+                x=np.mean(index1)
+                y=np.mean(index2)
+                centers.append((x,y))
+                spots.append((index1,index2))
+
+    # get the actual CL-spectrum of each island, 
+    # by taking the mean over the pixels of each island at the respective wavelength   
+    spectra=np.zeros([len(spots),len(wavelengths)])
+    for k in range(len(wavelengths)):
+        for i in range(len(spots)):
+            index1,index2=spots[i]
+            spot_pixels=np.zeros(len(index1))
+            for j in range(len(index1)):
+                spot_pixels[j]=data[k,index1[j],index2[j]]
+            
+            spectra[i,k]=np.mean(spot_pixels)
+
+
+    
+    # To obtain a spectrum of the SiO-matrix, we want to make sure to not get any effect from the nano-islands
+    # or the spots, where the SiO-matrix is interrupted with no island
+    # so now we create a mask not only using a threshold for the bright islands (upper_threshold)
+    # but also a threshold for the dark spots, where no islands sit anymore (lower_threshold)
+    center=(ksize3-1)//2
+    kernel=cv2.circle(np.zeros([ksize3,ksize3],dtype=np.uint8),(center,center),center,1,-1)
+    SiO_image=(se_image<np.mean(se_image)*upper_threshold) * (se_image>np.median(se_image)*lower_threshold )*1.
+    if boundary_offset>0:
+        SiO_image=SiO_image*mask
+    SiO_image=cv2.erode(SiO_image,kernel)
+
+    # Show the result next to the original SEM-image
+    fig,ax=plt.subplots(1,3)
+    fig.set_figwidth(12)
+    ax[1].imshow(se_image,cmap="gray")
+    ax[1].set_title("original SEM-image")
+    ax[0].imshow(binary_image)
+    ax[0].set_title("obtained mask/binary image")
+    ax[2].imshow(SiO_image)
+    ax[2].set_title("yellow area for SiO-spectrum")
+    plt.show()
+    
+    # get the mean background
+    mean_background=np.zeros(len(wavelengths))
+    for k in range(len(wavelengths)):
+        mean_background[k]=np.mean(data[k][SiO_image==1])
+
+    # For that reason we increase the masked area of the island 
+    center=(ksize1-1)//2
+    kernel=cv2.circle(np.zeros([ksize1,ksize1],dtype=np.uint8),(center,center),center,1,-1)
+    si_matrix_mask=np.zeros(binary_image.shape,dtype=np.uint8)
+    index1,index2=si_matrix
+    si_matrix_mask[index1,index2]=1
+    si_matrix_mask2=cv2.erode(si_matrix_mask,kernel)
+
+
+
+    # by increasing the masked area further and subtracting the original mask,
+    # we obtain rings surrounding each spot, 
+    # which we can use to subtract the local background at each spot.
+    center=(ksize2-1)//2
+    kernel=cv2.circle(np.zeros([ksize2,ksize2],dtype=np.uint8),(center,center),center,1,-1)
+    si_matrix_mask3=cv2.erode(si_matrix_mask2,kernel)
+    ring_image=si_matrix_mask3-si_matrix_mask2
+
+    separated_image,number_of_islands=ndimage.label(ring_image)
+    rings=[]
+    rcenters=[]
+    for i in range(number_of_islands):
+        index1,index2=np.where(separated_image==i)
+        if len(index1)<minimum_pix:
+            pass
+        else:
+            if i ==0:
+                pass
+            else:
+                x=np.mean(index1)
+                y=np.mean(index2)
+                rcenters.append((x,y))
+                rings.append((index1,index2))
+
+    fig,ax=plt.subplots(1,3)
+    fig.set_figwidth(12)
+    ax[0].imshow(binary_image)
+    ax[0].set_title("labeled islands")
+    counter=0
+    for i in centers:
+        ax[0].text(i[1],i[0],str(counter),c="r")
+        counter+=1
+    ax[1].imshow(si_matrix_mask2)
+    ax[1].set_title("increased island areas (inside of rings)")
+    ax[2].imshow(ring_image)
+    ax[2].set_title("rings for local background-subtraction")
+    plt.show()
+
+    # Because some islands are very close to each other,
+    # they are surrounded by a single ring.
+    # Thus the number of islands is not the same as the number of rings.
+    # So we calculate the distance of the center of each island to the center of each ring,
+    # the the island and the ring with minimal distance are paired 
+    distance_matrix=cdist(centers,rcenters)
+    spot_ring_relation=np.argmin(distance_matrix,axis=1)
+
+    # obtain the spectra of the all the rings    
+    rspectra=np.zeros([len(rings),len(wavelengths)])
+    for k in range(len(wavelengths)):
+        for i in range(len(rings)):
+            index1,index2=rings[i]
+            ring_pixels=np.zeros(len(index1))
+            for j in range(len(index1)):
+                ring_pixels[j]=data[k,index1[j],index2[j]]
+            
+            rspectra[i,k]=np.mean(ring_pixels)
+
+    # subtract the local background by the corresponding ring from each island
+    # also correct brightness variations in the image, due to the mirror-geometry
+    # by normalizing the local SiO(ring)-spectra by the mean-SiO-spectrum
+    nspectra=np.zeros(spectra.shape)
+    for k in range(len(wavelengths)):
+        for i in range(len(spots)):
+            nspectra[i,k]=spectra[i,k]-rspectra[spot_ring_relation[i],k]
+            #fac=mean_background[k]/rspectra[i,k]
+            nspectra[i,k] *= mean_background[k]/rspectra[spot_ring_relation[i],k]
+            
+    return nspectra,mean_background,centers
 
 #%% eliminate_side_maxima_image
 """

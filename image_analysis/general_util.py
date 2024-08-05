@@ -19,29 +19,179 @@ import os
 import ncempy.io as nio
 from contextlib import redirect_stdout
 import io
+#%% stitch any two curves with overlap and equidistant sampling
 
+def stitch_overlap(wavelengths1,spectrum1,wavelengths2,spectrum2,wavelength_bin_direction="center",
+                   scale_adjustment=True,newbins=False):
+    """
+    stitch two spectra with overlapping regions including scale adjustment between the two curves
+    the two spectra need to have uniformly spaced wavelengths in increasing order 
+    in the overlap region a mean of the two spectra (after scale adjustment) is used
+    within the overlap region the finer wavelength resolution is kept
+    (scale adjustment adjusts towards the finer resolution data)
+    (any interpolation is done linearly)
+    """
+    
+    if len(wavelengths1) != len(spectrum1) or len(wavelengths2) != len(spectrum2):
+        print("Corresponding wavelengths and spectrum need to have identical shape.")
+        print("In case of bins choose either the lower or upper bound and use 'up' or 'down', respectively,")
+        print("for the argument 'wavelength_bin_direction'.")
+    
+    # prepare data
+    wavelengths1=np.array(wavelengths1)
+    wavelengths2=np.array(wavelengths2)
+    spectrum1=np.array(spectrum1)
+    spectrum2=np.array(spectrum2)
+
+    delta_wavelengths1=(wavelengths1[1]-wavelengths1[0])/2
+    delta_wavelengths2=(wavelengths2[1]-wavelengths2[0])/2
+    if wavelength_bin_direction=="up":
+        wavelengthcenters1=wavelengths1+delta_wavelengths1
+        wavelengthcenters2=wavelengths2+delta_wavelengths2
+    elif wavelength_bin_direction=="down":
+        wavelengthcenters1=wavelengths1-delta_wavelengths1
+        wavelengthcenters2=wavelengths2-delta_wavelengths2
+    elif wavelength_bin_direction=="center":
+        wavelengthcenters1=wavelengths1
+        wavelengthcenters2=wavelengths2
+
+    # make sure the stepsize of spectrum1 is greater or equal than the stepsize of spectrum2
+    if delta_wavelengths1<delta_wavelengths2:
+        delta_wavelengths1,delta_wavelengths2=delta_wavelengths2,delta_wavelengths1
+        spectrum1,spectrum2=spectrum2,spectrum1
+        wavelengthcenters1,wavelengthcenters2=wavelengthcenters2,wavelengthcenters1
+
+    max_overlap_distance=delta_wavelengths1+delta_wavelengths2
+    full_overlap_distance=delta_wavelengths1-delta_wavelengths2
+    ratio=delta_wavelengths2/delta_wavelengths1
+    
+    overlap_indicator1=np.zeros(len(wavelengthcenters1))
+    
+    overlap_neighbours1=[[] for i in wavelengthcenters1]
+    overlap_neighbours2=[[] for i in wavelengthcenters2]
+    weights1=[[] for i in wavelengthcenters1]
+    weights2=[[] for i in wavelengthcenters2]
+    
+    for index1,value1 in enumerate(wavelengthcenters1):
+        for index2,value2 in enumerate(wavelengthcenters2):
+            
+            distance=np.abs(value2-value1)
+            if distance<max_overlap_distance:
+                overlap_neighbours1[index1].append(index2)
+                overlap_neighbours2[index2].append(index1)
+                
+                if distance <= full_overlap_distance:
+                    weights1[index1].append(ratio)
+                    weights2[index2].append(1)
+                    overlap_indicator1[index1]+=ratio
+
+                else:
+                    weight=(delta_wavelengths1-distance+delta_wavelengths2)/(2*delta_wavelengths2)
+                    weights1[index1].append(ratio*weight)
+                    weights2[index2].append(weight)
+                    overlap_indicator1[index1]+=ratio*weight
+    
+    new_wavelengths=wavelengthcenters2.tolist()
+    from_wavelengths1=np.zeros(len(wavelengthcenters2),dtype=bool).tolist()
+    wavelengths_index=np.arange(len(wavelengthcenters2),dtype=int).tolist()
+    
+    for i in range(len(wavelengthcenters1)):
+        if overlap_indicator1[i]<0.5:
+            new_wavelengths.append(wavelengthcenters1[i])
+            from_wavelengths1.append(True)
+            wavelengths_index.append(i)
+            
+    new_wavelengths=np.array(new_wavelengths)
+    from_wavelengths1=np.array(from_wavelengths1)
+    wavelengths_index=np.array(wavelengths_index,dtype=int)
+    sortindex=np.argsort(new_wavelengths)
+    new_wavelengths=new_wavelengths[sortindex]
+    from_wavelengths1=from_wavelengths1[sortindex]
+    wavelengths_index=wavelengths_index[sortindex]
+
+    
+    newspectrum1=np.zeros(len(new_wavelengths))
+    newspectrum2=np.zeros(len(new_wavelengths))
+    newspectrum_weights1=np.zeros(len(new_wavelengths))
+    newspectrum_weights2=np.zeros(len(new_wavelengths))
+    
+    for i in range(len(new_wavelengths)):
+        if from_wavelengths1[i]:
+            newspectrum1[i]=spectrum1[wavelengths_index[i]]
+            newspectrum_weights1[i]=1
+            if len(overlap_neighbours1[wavelengths_index[i]])>0:     
+                weight=0
+                for index,value in enumerate(overlap_neighbours1[wavelengths_index[i]]):
+                    newspectrum2[i]+=spectrum2[value]*weights1[wavelengths_index[i]][index]
+                    weight +=weights1[wavelengths_index[i]][index]
+                newspectrum2[i]/=weight
+                newspectrum_weights2[i]=weight
+        else:       
+            newspectrum2[i]=spectrum2[wavelengths_index[i]]
+            newspectrum_weights2[i]=1
+            if len(overlap_neighbours2[wavelengths_index[i]])>0:
+                weight=0
+                for index,value in enumerate(overlap_neighbours2[wavelengths_index[i]]):
+                    newspectrum1[i]+=spectrum1[value]*weights2[wavelengths_index[i]][index]
+                    weight +=weights2[wavelengths_index[i]][index]
+                newspectrum1[i]/=weight
+                newspectrum_weights1[i]=weight
+
+    overlap_region=(newspectrum_weights1*newspectrum_weights2)>0
+    overlap1=newspectrum1[overlap_region]
+    overlap2=newspectrum2[overlap_region]
+
+    factor1=np.mean(overlap2)/np.mean(overlap1)
+    if scale_adjustment:
+        newspectrum1*= factor1
+
+    newspectrum=newspectrum1*newspectrum_weights1 + newspectrum2*newspectrum_weights2
+    newspectrum /= (newspectrum_weights1+newspectrum_weights2)
+    
+    if newbins:
+        nbins=[]
+        for i in range(len(new_wavelengths)-1):
+            nbins.append(0.5*(new_wavelengths[i]+new_wavelengths[i+1]))
+        startdiff=nbins[1]-nbins[0]
+        enddiff=nbins[-1]-nbins[-2]
+        nbins=[nbins[0]-startdiff]+nbins
+        nbins.append(nbins[-1]+enddiff)
+        return new_wavelengths,newspectrum,nbins
+        
+    return new_wavelengths,newspectrum
+    
 
 #%% get_dm4_with_metadata
 def get_dm4_with_metadata(filepath):
-    relevant_list=["Grating","Objective focus (um)","Stage X","Stage Y","Stage Z","Stage Beta","Stage Alpha","Indicated Magnification",
-    "Bandpass","Detector","Filter","PMT HV","Sensitivity","Slit Width","Sample Time","Image Height","Image Width",
-     "Number Summing Frames","Voltage","Lightpath","Signal Name"]    
+    """read a dm4-file and return the variables data and metadata as dictionaries
+    data includes everything immediately important
+    metadata contains all other information
+    
+    Important missing parameters are  current and for spectra:
+    acquisition time and acquisition date are missing
+    """
+
+
+    relevant_metadata_list=["Grating","Objective focus (um)","Stage X","Stage Y","Stage Z","Stage Beta","Stage Alpha","Indicated Magnification",
+    "Bandpass","Detector","Filter","PMT HV","Sensitivity","Slit Width","Sample Time","Dwell time (s)","Image Height","Image Width",
+     "Number Summing Frames","Voltage","Lightpath","Signal Name","Acquisition Time","Acquisition Date"]    
     
     f = io.StringIO()
     with redirect_stdout(f):
-        dmd=nio.dm.dmReader(filepath,verbose=True)
-    metadata = f.getvalue()
+        data=nio.dm.dmReader(filepath,verbose=True)
+    all_metadata = f.getvalue()
     
-    result=dict()
+    metadata=dict()
 
-    for i in range(len(relevant_list)):
-        start=metadata.find("curTagValue = "+relevant_list[i])
-        end=metadata[start:].find("\n")
-        end+=start
-        start+=len("curTagValue = "+relevant_list[i])+2
-        result[relevant_list[i]]=metadata[start:end]
+    for i in range(len(relevant_metadata_list)):
+        start=all_metadata.find("curTagValue = "+relevant_metadata_list[i])
+        end=all_metadata[start:].find("\n")
+        if start != -1:
+            end+=start
+            start+=len("curTagValue = "+relevant_metadata_list[i])+2
+        metadata[relevant_metadata_list[i]]=all_metadata[start:end]
 
-    return dmd,result    
+    return data,metadata   
 
 
 #%% get_files_of_format
@@ -49,12 +199,31 @@ def get_files_of_format(path,ending):
     files = os.listdir(path)
     desired_format=ending
     pathlist=[]
-
+    
+    if path[-1]=="/" or path[-1]=="\\":
+        pass
+    else:
+        path+="/"
+    
     for i in range(len(files)):
         if files[i][-len(ending):] == desired_format:
             pathlist.append(path+files[i])
     return pathlist
+#%%
 
+def get_all_files(folder,ending=None,start=None):
+    filenames=[]#os.listdir(folder)
+    for path, subdirs, files in os.walk(folder):
+        for name in files:
+            condition=False
+            if ending is None and start is None: condition=True 
+            elif name[-len(ending):]==ending and start is None: condition=True
+            elif ending is None and start==name[:len(start)]: condition=True 
+            elif name[-len(ending):]==ending and start==name[:len(start)]: condition=True
+
+            if condition: filenames.append(os.path.join(path, name))
+    
+    return filenames
 
 #%% folder_file
 def folder_file(path_string):
@@ -109,22 +278,6 @@ def fft_circ_mask(imshape, mask_radius=680, mask_sigma=50):
 
     return maskb
 
-
-#%% peak_com
-def peak_com(y, delta=None, roi=None):
-    if roi is None:
-        pos = np.argmax(y)
-    else:
-        pos = roi[0] + np.argmax(y[roi[0] : roi[1]])
-    if delta is None:
-        delta = min(pos, len(y) - pos)
-        print(delta)
-        start = pos - delta
-        end = pos + delta
-    else:
-        start = max(0, pos - delta)
-        end = min(len(y), pos + delta)
-    return np.sum(np.arange(start, end) * y[start:end]) / np.sum(y[start:end]), pos
 
 
 #%% peak_com2d
@@ -234,65 +387,6 @@ def ccw(A, B, C):
 def intersect(A, B, C, D):
     return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
 
-#%%
-def get_n_peaks_1d(y, x=None, delta=0, n=5, roi=None):
-    """
-    Obtain n maxima from y in descending order
-    Calculated by consecutively finding the maximum of y
-    and setting values near the maximum with distance +-delta
-    to a median value of y, then repeating the process n times
-
-    Parameters
-    ----------
-    y: array
-
-    optional:
-    x: array, defaults to None
-    delta: float, defaults to 0
-    n: int, defaults to 1
-    roi: tuple, defaults to None
-
-    Returns
-    -------
-    array with length n containing the positions of the n peaks
-    """
-
-    if x is None:
-        x = np.arange(len(y))
-    else:
-        dist = 1
-        while x[dist] - x[0] == 0:
-            dist += 1
-        if x[dist] - x[0] < 0:
-            sortindex = np.argsort(x)
-            x = x[sortindex]
-            y = y[sortindex]
-
-    if roi is None:
-        newy = copy.deepcopy(y)
-        xadd = 0
-    else:
-        start = np.where(x >= roi[0])[0][0]
-        if roi[1] >= np.max(x):
-            end = len(x)
-        else:
-            end = np.where(x > roi[1])[0][0]
-        xadd = start
-        newy = copy.deepcopy(y[start:end])
-
-    ymaxpos = np.zeros(n, dtype=int)
-    med = np.min(y)
-    for i in range(n):
-        pos = np.argmax(newy)
-        ymaxpos[i] = pos + xadd
-
-        delstart = np.where(x >= x[ymaxpos[i]] - delta)[0][0] - xadd
-        delend = np.where(x <= x[ymaxpos[i]] + delta)[0][-1] + 1 - xadd
-        if delstart < 0:
-            delstart = 0
-        newy[delstart:delend] = med
-
-    return x[ymaxpos]
 
 
 
