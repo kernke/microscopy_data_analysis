@@ -6,15 +6,25 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 from copy import deepcopy
-from .general_util import assure_multiple,peak_com2d
+from .general_util import peak_com2d
 from .image_processing import img_periodic_tiling,img_to_uint16,img_to_half_int16
-# def phase_correlation(im1,im2):
-#    return (ifftn(fftn(im1)*ifftn(im2))).real
-
 
 
 #%% phase_correlation
 def phase_correlation(a, b):
+    """
+    calculate the pase correlation between two images a,b
+    with same shape MxN
+
+    Args:
+        a (MxN array_like): first image.
+        
+        b (MxN array_like): second image.
+
+    Returns:
+        r (MxN array_like): phase correlation matrix.
+
+    """
     G_a = np.fft.fft2(a)
     G_b = np.fft.fft2(b)
     conj_b = np.ma.conjugate(G_b)
@@ -23,221 +33,204 @@ def phase_correlation(a, b):
     r = np.fft.ifft2(R).real
     return r
 
-#%% pos_from_pcm_short
-def pos_from_pcm_short(roipcm):
+#%% max_from_2d
+def max_from_2d(A):
+    """
+    get the position and value of the maximum from a matrix or image
 
-    dist = np.argmax(roipcm)
-    dist1 = dist % roipcm.shape[1]
-    dist0 = dist // roipcm.shape[1]
+    Args:
+        A (MxN array_like): input 2D-signal.
 
-    return np.array([dist0, dist1])
+    Returns:
+        maximum_position (tuple): containing two integers.
+        
+        maximum_value (scalar): datatype deping on the input.
+
+    """
+
+    dist = np.argmax(A)
+    dist1 = dist % A.shape[1]
+    dist0 = dist // A.shape[1]
+
+    maximum_position=np.array([dist0, dist1])
+    maximum_value=A[dist0,dist1]
+    
+    return maximum_position,maximum_value
 
 
-#%% stitch_auto / close ...
-def stitch_auto(im1, im2, mode=0, zerogone=False, half=0):
-    pcm = phase_correlation(im1, im2)
-    if zerogone:
-        pcm[0, 0] = np.min(pcm)
-    pc = pos_from_pcm_short(pcm)
-    pcs = np.array(np.shape(pcm))
-
-    pc_copy = np.copy(pc)
-    vert0 = 0
-    hor0 = 0
-
-    if mode == 0:
-        if pc[0] > pcs[0] / 2:#.5
-            hs = int(pcs[0] / 2) - 1
-            pcm2 = phase_correlation(im1[hs : 2 * hs, :], im2[:hs, :])
-            if zerogone:
-                pcm2[0, 0] = np.min(pcm2)
-            pc2 = pos_from_pcm_short(pcm2)
-            if pcm2[pc2[0], pc2[1]] < pcm[pc_copy[0], pc_copy[1]]:
-                vert0 = pcs[0] - pc[0]
-                pc[0] = 0
-
-        if pc[1] > pcs[1] / 2:#.5
-            hs = int(pcs[1] / 2) - 1
-            pcm2 = phase_correlation(im1[:, hs : 2 * hs], im2[:, :hs])
-            if zerogone:
-                pcm2[0, 0] = np.min(pcm2)
-            pc2 = pos_from_pcm_short(pcm2)
-            if pcm2[pc2[0], pc2[1]] < pcm[pc_copy[0], pc_copy[1]]:
-                hor0 = pcs[1] - pc[1]
-                pc[1] = 0
-
-    if mode == 1:
-        pass
-
-    elif mode == 2:
-        vert0 = pcs[0] - pc[0]
-        pc[0] = 0
-
-    elif mode == 3:
-        vert0 = pcs[0] - pc[0]
-        pc[0] = 0
-        hor0 = pcs[1] - pc[1]
-        pc[1] = 0
-
-    elif mode == 4:
-        hor0 = pcs[1] - pc[1]
-        pc[1] = 0
-
-    vh = np.array([vert0, hor0])
-    sheet = np.zeros(pcs + pc + vh)
-    sheetdiv = np.zeros(pcs + pc + vh)
-
-    if half == 0:
-
-        sheet[vert0 : vert0 + pcs[0], hor0 : hor0 + pcs[1]] += im1
-        sheetdiv[vert0 : vert0 + pcs[0], hor0 : hor0 + pcs[1]] += np.ones(pcs)
-
-        sheet[pc[0] : pc[0] + pcs[0], pc[1] : pc[1] + pcs[1]] += im2
-        sheetdiv[pc[0] : pc[0] + pcs[0], pc[1] : pc[1] + pcs[1]] += np.ones(pcs)
-
-    if half == 1:
-
-        sheet[pc[0] : pc[0] + pcs[0], pc[1] : pc[1] + pcs[1]] += im2
-        sheetdiv[pc[0] : pc[0] + pcs[0], pc[1] : pc[1] + pcs[1]] += np.ones(pcs)
-
-    elif half == -1:
-
-        sheet[vert0 : vert0 + pcs[0], hor0 : hor0 + pcs[1]] += im1
-        sheetdiv[vert0 : vert0 + pcs[0], hor0 : hor0 + pcs[1]] += np.ones(pcs)
-
-    sheetdiv[sheetdiv == 0] = -1
-
-    abs_pos = np.zeros([1, 2, 2])
-    abs_pos[0, 0, 0] = vert0
-    abs_pos[0, 0, 1] = hor0
-    abs_pos[0, 1, 0] = pc[0]
-    abs_pos[0, 1, 1] = pc[1]
-    return sheet / sheetdiv, abs_pos
-
+#%%
 
 def stitch(im1, im2):
-    pcm = phase_correlation(im1, im2)
-    pc = pos_from_pcm_short(pcm)
-    pcs = np.array(np.shape(pcm))
+    """
+    stitch two images together to one, by correcting a translational offset
+    The images must have the the same shape (MxN) and some overlap 
+    
+    Args:
+        im1 (MxN array_like): first image.
+        
+        im2 (MxN array_like): second image.
 
-    pc_copy = np.copy(pc)
-    vert0 = 0
-    hor0 = 0
+    Returns:
+        stitched (KxL array_like): montage of the two images.
 
-    if pc[0] > pcs[0] / 2.5:
-        hs = int(pcs[0] / 2) - 1
-        pcm2 = phase_correlation(im1[hs : 2 * hs, :], im2[:hs, :])
-        pc2 = pos_from_pcm_short(pcm2)
-        if pcm2[pc2[0], pc2[1]] < pcm[pc_copy[0], pc_copy[1]]:
-            vert0 = pcs[0] - pc[0]
-            pc[0] = 0
+    """
+    pc = align(im1, im2)
+    pcs=im1.shape
+    
+    sheet = np.zeros(pcs + np.abs(pc))
+    sheetdiv = np.zeros(pcs + np.abs(pc))
 
-    if pc[1] > pcs[1] / 2.5:
-        hs = int(pcs[1] / 2) - 1
-        pcm2 = phase_correlation(im1[:, hs : 2 * hs], im2[:, :hs])
-        pc2 = pos_from_pcm_short(pcm2)
-        if pcm2[pc2[0], pc2[1]] < pcm[pc_copy[0], pc_copy[1]]:
-            hor0 = pcs[1] - pc[1]
-            pc[1] = 0
+    im1pos=np.zeros(2,dtype=int)
+    im2pos=np.copy(pc)
 
-    vh = np.array([vert0, hor0])
-    sheet = np.zeros(pcs + pc + vh)
-    sheetdiv = np.zeros(pcs + pc + vh)
+    for i in range(2):
+        if pc[i]<0:
+            im1pos[i]=-pc[i]
+            im2pos[i]=0
 
-    sheet[vert0 : vert0 + pcs[0], hor0 : hor0 + pcs[1]] += im1
-    sheetdiv[vert0 : vert0 + pcs[0], hor0 : hor0 + pcs[1]] += np.ones(pcs)
+    sheet[im1pos[0] : im1pos[0] + pcs[0], im1pos[1] : im1pos[1] + pcs[1]] += im1
+    sheetdiv[im1pos[0] : im1pos[0] + pcs[0], im1pos[1] : im1pos[1] + pcs[1]] += np.ones(pcs)
 
-    sheet[pc[0] : pc[0] + pcs[0], pc[1] : pc[1] + pcs[1]] += im2
-    sheetdiv[pc[0] : pc[0] + pcs[0], pc[1] : pc[1] + pcs[1]] += np.ones(pcs)
-
-    sheetdiv[sheetdiv == 0] = -1
-    return sheet / sheetdiv
-
-
-def stitch_close(im1, im2):
-    pcm = phase_correlation(im1, im2)
-    pc = pos_from_pcm_short(pcm)
-    pcs = np.array(np.shape(pcm))
-
-    vert0 = 0
-    hor0 = 0
-
-    if pc[0] > pcs[0] / 2.5:
-
-        vert0 = pcs[0] - pc[0]
-        pc[0] = 0
-
-    if pc[1] > pcs[1] / 2.5:
-        hor0 = pcs[1] - pc[1]
-        pc[1] = 0
-
-    vh = np.array([vert0, hor0])
-    s = pcs + pc + vh
-    s = s.astype(int)
-    sheet = np.zeros([s[0], s[1], 2])
-
-    sheet[vert0 : vert0 + pcs[0], hor0 : hor0 + pcs[1], 0] += im1
-    # sheetdiv[vert0:vert0+pcs[0],hor0:hor0+pcs[1]]+=np.ones(pcs)
-
-    sheet[pc[0] : pc[0] + pcs[0], pc[1] : pc[1] + pcs[1], 1] += im2
-
-    return np.max(sheet, axis=-1)
-
-
-def stitch_close2(im1, im2):
-    pcm = phase_correlation(im1, im2)
-    pc = pos_from_pcm_short(pcm)
-    pcs = np.array(np.shape(pcm))
-
-    vert0 = 0
-    hor0 = 0
-
-    if pc[0] > pcs[0] / 2.0:
-
-        vert0 = pcs[0] - pc[0]
-        pc[0] = 0
-
-    if pc[1] > pcs[1] / 2.5:
-        hor0 = pcs[1] - pc[1]
-        pc[1] = 0
-
-    vh = np.array([vert0, hor0])
-    sheet = np.zeros(pcs + pc + vh)
-    sheetdiv = np.zeros(pcs + pc + vh)
-
-    sheet[vert0 : vert0 + pcs[0], hor0 : hor0 + pcs[1]] += im1
-    sheetdiv[vert0 : vert0 + pcs[0], hor0 : hor0 + pcs[1]] += np.ones(pcs)
-
-    sheet[pc[0] : pc[0] + pcs[0], pc[1] : pc[1] + pcs[1]] += im2
-    sheetdiv[pc[0] : pc[0] + pcs[0], pc[1] : pc[1] + pcs[1]] += np.ones(pcs)
+    sheet[im2pos[0] : im2pos[0] + pcs[0], im2pos[1] : im2pos[1] + pcs[1]] += im2
+    sheetdiv[im2pos[0] : im2pos[0] + pcs[0], im2pos[1] : im2pos[1] + pcs[1]] += np.ones(pcs)
 
     sheetdiv[sheetdiv == 0] = -1
-    return sheet / sheetdiv
+    stitched=sheet / sheetdiv
+    return stitched
 
 
 #%% align
-def align(im1, im2):
+
+def align(im1, im2,verbose=False):
+    """
+    calculate the translational offset of image im2 relative to image im1
+    using phase correlation between the two image
+    The images must have the the same shape (MxN) and some overlap 
+
+    Args:
+        im1 (MxN array_like): first image.
+        
+        im2 (MxN array_like): second image.
+        
+        verbose (bool, optional): set to "True" for printing more information about the function execution. 
+        Defaults to False.
+
+    Returns:
+        offset (tuple): containing two integers.
+
+    """
     pcm = phase_correlation(im1, im2)
-    pc = pos_from_pcm_short(pcm)
+    pc,pcval = max_from_2d(pcm)
     pcs = np.array(np.shape(pcm))
+    
+    optimal_solution=True
 
-    pc_copy = np.copy(pc)
+    hs = int(np.ceil(pcs[0] / 2))
+    ws = int(np.ceil(pcs[1] / 2))
+    hs2= int(hs/2)
+    ws2= int(ws/2)
+    delta_d0=pcs[0]-hs
+    delta_d1=pcs[1]-ws
 
-    if pc[0] > pcs[0] / 2:#.5
-        hs = int(pcs[0] / 2) - 1
-        pcm2 = phase_correlation(im1[hs : 2 * hs, :], im2[:hs, :])
-        pc2 = pos_from_pcm_short(pcm2)
-        if pcm2[pc2[0], pc2[1]] < pcm[pc_copy[0], pc_copy[1]]:
+    pcm_a = phase_correlation(im1[hs2:hs2+hs, :], im2[hs2:hs2+hs, :])
+    pcm_b = phase_correlation(im1[:hs, :], im2[:hs, :])
+    pcm_c = phase_correlation(im1[-hs:, :], im2[-hs:, :])
+    pcm_d = phase_correlation(im1[:hs, :], im2[-hs:, :])
+    pcm_e = phase_correlation(im1[-hs:, :], im2[:hs, :])
+ 
+    pc0vals=np.zeros(5)   
+    pc0s=np.zeros([5,2],dtype=int)
+    pc0s[0],pc0vals[0] = max_from_2d(pcm_a)
+    pc0s[1],pc0vals[1] = max_from_2d(pcm_b)
+    pc0s[2],pc0vals[2] = max_from_2d(pcm_c)
+    pc0s[3],pc0vals[3] = max_from_2d(pcm_d)
+    pc0s[4],pc0vals[4] = max_from_2d(pcm_e)
+
+    pc0s[4,0]+=delta_d0
+    optimal_solution *= pc[0] in pc0s[:,0]
+    cond0= pc[0] == pc0s[:,0]   
+
+    if optimal_solution:
+        if np.sum(cond0)>1:
+            if cond0[0]:
+                index0=0
+            else:
+                index0=np.argmax(pc0vals*cond0)
+        else:
+            index0=np.argwhere(cond0)[0][0]
+    else:
+        index0=np.argmax(pc0vals)
+    
+    pcm_a = phase_correlation(im1[:,ws2:ws2+ws], im2[:,ws2:ws2+ws])
+    pcm_b = phase_correlation(im1[:,:ws], im2[:,:ws])
+    pcm_c = phase_correlation(im1[:,-ws:], im2[:,-ws:])
+    pcm_d = phase_correlation(im1[:,:ws], im2[:,-ws:])
+    pcm_e = phase_correlation(im1[:,-ws:], im2[:,:ws])
+    
+    pc1vals=np.zeros(5)
+    pc1s=np.zeros([5,2],dtype=int)
+    pc1s[0],pc1vals[0] = max_from_2d(pcm_a)
+    pc1s[1],pc1vals[1] = max_from_2d(pcm_b)
+    pc1s[2],pc1vals[2] = max_from_2d(pcm_c)
+    pc1s[3],pc1vals[3] = max_from_2d(pcm_d)
+    pc1s[4],pc1vals[4] = max_from_2d(pcm_e)
+
+    pc1s[4,1]+=delta_d1
+    optimal_solution *= pc[1] in pc1s[:,1]
+    cond1= pc[1] == pc1s[:,1]
+    
+    if optimal_solution:
+        if np.sum(cond1)>1:
+            if cond1[0]:
+                index1=0
+            else:
+                index1=np.argmax(pc1vals*cond1)
+        else:
+            index1=np.argwhere(cond1)[0][0]
+    else:
+        index1=np.argmax(pc1vals)
+    
+    if not optimal_solution:
+        print("Warning: optimal solution not found")
+        
+    if verbose:
+        print("Maximum position of whole phase correlation matrix:")
+        print(pc)
+        print("Order of partial correlations (1d):")
+        print("(central,central)")
+        print("(left,left)")
+        print("(right,right)")
+        print("(right,left)")
+        print("(left,right)")
+        print('Axis 0 --------------')
+        print("partial maximum positions:")
+        print(pc0s)
+        print("maximum values:")
+        print(pc0vals)
+        print("resulting index")
+        print(index0)
+        print("Axis 1--------------")
+        print("partial maximum positions")
+        print(pc1s)
+        print("maximum values:")
+        print(pc1vals)
+        print("resulting index")
+        print(index1)
+
+    if index0<3:
+        if pc[0] > pcs[0] / 2:
             pc[0] = pc[0] - pcs[0]
-
-    if pc[1] > pcs[1] / 2:#.5
-        hs = int(pcs[1] / 2) - 1
-        pcm2 = phase_correlation(im1[:, hs : 2 * hs], im2[:, :hs])
-        pc2 = pos_from_pcm_short(pcm2)
-        if pcm2[pc2[0], pc2[1]] < pcm[pc_copy[0], pc_copy[1]]:
+    elif index0==3:
+        pc[0] = pc[0]-pcs[0]
+        
+    if index1<3:
+        if pc[1] > pcs[1] / 2:
             pc[1] = pc[1] - pcs[1]
+    elif index1==3:
+        pc[1] = pc[1]-pcs[1]
 
     return pc
+
 
 #%% align precise
 def align_precise(im1, im2,delta=None,show=False,artifacts=None):
@@ -352,7 +345,7 @@ def fine_tuning_shifts(aligned_stack,delta=4):
             deltaj=deltarange[j]
             for k in range(Nd):
                 deltak=deltarange[k]
-                changes[j,k]=np.sum(np.abs(img0-stack[i+1][delta+deltaj:-(delta-deltaj)-1,delta+deltak:-(delta-deltak)-1]))
+                changes[j,k]=np.sum((img0-stack[i+1][delta+deltaj:-(delta-deltaj)-1,delta+deltak:-(delta-deltak)-1])**2)
         idx0,idx1=np.where(changes==np.min(changes))
         shifts[i]=idx0[0],idx1[0]
     shifts+= -delta
@@ -383,7 +376,7 @@ def stack_align(imgs,shifts):
 #%% pos_from_pcm
 
 
-def pos_from_pcm(pcm, overlap_limits, mode, tolerance, imdim, rdrift, cdrift):
+def _pos_from_pcm(pcm, overlap_limits, mode, tolerance, imdim, rdrift, cdrift):
     rwidth = overlap_limits[0, 1] - overlap_limits[0, 0]
     cwidth = overlap_limits[1, 1] - overlap_limits[1, 0]
 
@@ -487,7 +480,7 @@ def relative_stitching_positions(
                     )
                     if blur != 0:
                         pcm = cv2.blur(pcm, (blur, blur))
-                    dist0, dist1, pcms = pos_from_pcm(
+                    dist0, dist1, pcms = _pos_from_pcm(
                         pcm,
                         overlap_limits,
                         "vertical",
@@ -516,7 +509,7 @@ def relative_stitching_positions(
                     pcm = phase_correlation(images[i] * maskleft, images[j] * maskright)
                     if blur != 0:
                         pcm = cv2.blur(pcm, (blur, blur))
-                dist0, dist1, pcms = pos_from_pcm(
+                dist0, dist1, pcms = _pos_from_pcm(
                     pcm,
                     overlap_limits,
                     "horizontal",
@@ -538,7 +531,7 @@ def relative_stitching_positions(
                     if blur != 0:
                         pcm = cv2.blur(pcm, (blur, blur))
 
-                    dist0, dist1, pcms = pos_from_pcm(
+                    dist0, dist1, pcms = _pos_from_pcm(
                         pcm,
                         overlap_limits,
                         "vertical",
@@ -695,7 +688,7 @@ def drift_correction(images, tile_dimensions, overlap_rows_cols, tolerance=0.1):
                 if j < len(images):
                     pcm = phase_correlation(images[i], images[j])
 
-                    dist0, dist1, pcms = pos_from_pcm(
+                    dist0, dist1, pcms = _pos_from_pcm(
                         pcm, overlap_limits, "vertical", tolerance, imdim, 0, 0
                     )
                     positions[i, j] = dist0, dist1
@@ -710,7 +703,7 @@ def drift_correction(images, tile_dimensions, overlap_rows_cols, tolerance=0.1):
                     pcm = phase_correlation(images[i], images[j])
                 else:
                     pcm = phase_correlation(images[i], images[j])
-                dist0, dist1, pcms = pos_from_pcm(
+                dist0, dist1, pcms = _pos_from_pcm(
                     pcm, overlap_limits, "horizontal", tolerance, imdim, 0, 0
                 )
                 positions[i, j] = dist0, dist1
@@ -723,7 +716,7 @@ def drift_correction(images, tile_dimensions, overlap_rows_cols, tolerance=0.1):
                 if j < len(images):
                     pcm = phase_correlation(images[i], images[j])
 
-                    dist0, dist1, pcms = pos_from_pcm(
+                    dist0, dist1, pcms = _pos_from_pcm(
                         pcm, overlap_limits, "vertical", tolerance, imdim, 0, 0
                     )
                     positions[i, j] = dist0, dist1
@@ -1073,9 +1066,9 @@ def click(event):
         x = event.xdata
         y = event.ydata
 
-        list_of_points.append([x, y])
+        list_of_points.append([y, x])
         ax.plot(x, y, "o")
-        print(x, y)
+        print(y, x)
         plt.gcf().canvas.draw()
 
 

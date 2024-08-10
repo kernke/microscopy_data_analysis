@@ -21,3 +21,7 @@ In the same way (for example: within the Anaconda Prompt, if you are using that)
 
 to obtain the documentation in "docs/_build/html/microscopic_data_analysis.html".
 For the moment, creating the documentation still results in a few warnings, that can be ignored.
+
+To make sure everything works fine, tests can be executed by typing
+
+    pytest
