@@ -137,15 +137,17 @@ def img_make_square(image, startindex=None):
     crops the largest square image from the original, by default from the center.
     The position of the cropped square can be specified via startindex,
     moving the frame from the upper left corner at startindex=0
-    to the lower right corner at startindex=|M-N|
+    to the lower right corner at startindex=|M-N|   
 
-    Parameters
-    ----------
-    image: MxN array 
-    startindex:  int, 0 <= startindex <= |M-N| 
+    Args:
+        image (MxN array_like): DESCRIPTION.
+        
+        startindex (int, optional): 0 <= startindex <= |M-N|. 
+        Defaults to None.
 
     Returns:
-    square_image either MxM or NxN array
+        square_image (TYPE): either MxM or NxN array.
+
     """
 
     ishape = image.shape
@@ -180,28 +182,31 @@ def img_rotate_bound(image, angle, flag="cubic", bm=1):
     rotates an image by the given angle clockwise;
     The rotated image is given in a rectangular bounding box
     without cutting off parts of the original image.
-
-    Parameters
-    ----------
-    image : MxN array, np.uint8
-    angle : float, angle given in degrees
-    flag : string, optional, possibilities:"cubic","linear";
-        sets the method of interplation. The default is "cubic".
-    bm : int, optional, possibilities: 0,1;
-        sets the border mode, extrapolating from the borders of the image.
+    
+    Args:
+        image (MxN array_like): np.uint8.
+        
+        angle (float): angle given in degrees.
+        
+        flag (string, optional): possibilities:"cubic","linear";
+        sets the method of interplation. 
+        Defaults to "cubic".
+        
+        bm (int, optional): sets the border mode, 
+        extrapolating from the borders of the image.
         0: continues the image by padding zeros
-        1: continues the image by repeating the border-pixel values
-        The default is 1.
-        (As bm=1 allows more exact back transformation, avoiding the 
-         decrease of border-pixel values due to interpolation with zeros.)
+        1: continues the image by repeating the border-pixel values. 
+        Defaults to 1.
 
-    Returns
-    -------
-    rotated_image: KxL array, np.uint8
-    log : list, [M,N,inverse_rotation_matrix],
-        contains the original shape M,N and the matrix needed 
-        to invert the rotation for the function img_rotate_back
+    Returns:
+        rotated_image (KxL array_like): np.uint8.
+        
+        log (list): looking like [M,N,inverse_rotation_matrix],
+            contains the original shape M,N and the matrix needed 
+            to invert the rotation for the function img_rotate_back.
+
     """
+
 
     (h, w) = image.shape[:2]
     (cX, cY) = (w / 2, h / 2)
@@ -294,18 +299,19 @@ def img_periodic_tiling(img, tiles=3):
     takes an image as a tile and creates a tiling of
     tiles x tiles by duplicating it. 
     
-    Parameters
-    ----------
-    img : MxN array, image
-    tiles : int (must be uneven), optional
-        number of tiles in vertical and horizontal direction. 
-        The default is 3.
+    Args:
+        img (MxN array_like): 2d-dataset / image.
+        
+        tiles (int, optional): number of tiles in vertical and horizontal direction. 
+        the number of tiles must be uneven.
+        Defaults to 3.
 
-    Returns
-    -------
-    tiled : tiles*M x tiles*N array
-    orig : tuples containing the bounding coordinates of the center image
-           ((lower_row_limit,upper_row_limit),(lower_column_limit,upper_column_limit)
+    Returns:
+        tiled (array_like): with shape tiles*M x tiles*N.
+        
+        orig (tuples): containing the bounding coordinates of the center image
+        (lower_row_limit,upper_row_limit),(lower_column_limit,upper_column_limit).
+
     """
     s = np.array(img.shape)
     tiled = np.zeros(s * tiles, dtype=img.dtype)

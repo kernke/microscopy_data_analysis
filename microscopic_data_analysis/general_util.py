@@ -5,7 +5,7 @@
 
 import numpy as np
 import cv2
-import copy
+#import copy
 from numba import njit
 import scipy.special
 
@@ -15,65 +15,155 @@ import matplotlib.pyplot as plt
 
 from .image_processing import img_make_square
 import os
+import h5py
+import ast
+import datetime
 
 import ncempy.io as nio
 from contextlib import redirect_stdout
 import io
+
+#%%
+def bin_centering(x_bins,additional_boundary_bin_threshold=None):
+    """
+    transform bin thresholds to x values
+
+    Args:
+        x_bins (list or array_like): with length N, in strictly increasing order.
+        
+        additional_boundary_bin_threshold (float, optional): option to give an additional bin,
+        in case the given values, represent only lower or upper bin boundaries. Defaults to None.
+
+    Returns:
+        centers (array_like): with length N-1 or length N when an additional bin is given.
+
+    """
+    if not isinstance(x_bins,list):
+        x_bins=x_bins.tolist()
+
+    if additional_boundary_bin_threshold is not None:    
+        if additional_boundary_bin_threshold>np.max(x_bins):
+            x_bins.append(additional_boundary_bin_threshold)
+        elif additional_boundary_bin_threshold<np.min(x_bins): 
+            x_bins.insert(0,additional_boundary_bin_threshold)
+        else:
+            raise ValueError("additional_boundary_bin_threshold within the range of x_bins")
+        
+    bin_diff=np.diff(x_bins)
+    if np.min(bin_diff)<=0:
+        raise ValueError("input x_bins is not strictly increasing")
+    
+    centers=x_bins[:-1]+bin_diff/2
+
+    return centers
+
+def create_bins(x):
+    """
+    create bin thresholds between points of x,
+    always in the middle between two points, 
+    with mirroring boundary conditions
+
+    Args:
+        x (list or array_like): with length N, in strictly increasing order.
+
+    Returns:
+        bins (list): with length N+1.
+
+    """
+    if np.min(np.diff(x))<=0:
+        raise ValueError("input x is not strictly increasing")
+    
+    bins=[]
+    for i in range(len(x)-1):
+        bins.append(0.5*(x[i]+x[i+1]))
+    startdiff=bins[1]-bins[0]
+    enddiff=bins[-1]-bins[-2]
+    bins=[bins[0]-startdiff]+bins
+    bins.append(bins[-1]+enddiff)
+    return bins
+
+
 #%% stitch any two curves with overlap and equidistant sampling
 
-def stitch_overlap(wavelengths1,spectrum1,wavelengths2,spectrum2,wavelength_bin_direction="center",
-                   scale_adjustment=True,newbins=False):
+def stitch_1d_overlap(x1,y1,x2,y2,scale_adjustment=True,newbins=False,verbose=False):
     """
-    stitch two spectra with overlapping regions including scale adjustment between the two curves
-    the two spectra need to have uniformly spaced wavelengths in increasing order 
-    in the overlap region a mean of the two spectra (after scale adjustment) is used
-    within the overlap region the finer wavelength resolution is kept
-    (scale adjustment adjusts towards the finer resolution data)
-    (any interpolation is done linearly)
+    stitch two 1d-signals (x1,y1 and x2,y2) containing some overlap in x,
+    x1 and x2 must be uniformly spaced and in increasing order
+    within the overlap region the finer resolution in x is kept
+    
+    adjusting the scale for a smooth transition from y1 to y2 
+    happens towards data with finer resolution, by using the mean within the overlap region
+    (any interpolation in this function is done linearly)
+    
+    (typical use case: two spectroscopic measurements with different settings,
+    yielding two spectra of different wavelength-regions with some overlap)
+
+    Args:
+        x1 (list or array_like): same length as y1.
+        
+        y1 (list or array_like): same length as x1.
+        
+        x2 (list or array_like): same length as y2.
+        
+        y2 (list or array_like): same length as x2.
+                
+        scale_adjustment (bool, optional): turn multiplicative adjustement on (True) or off (False). 
+        Defaults to True.
+        
+        verbose (bool, optional): prints out the scale_adjustment factor, if set to True. 
+        Defaults to False.
+        
+    Returns:
+        new_x (array_like): stitched signal x.
+        
+        new_y (array_like): stitched signal y.
+
     """
     
-    if len(wavelengths1) != len(spectrum1) or len(wavelengths2) != len(spectrum2):
+    if len(x1) != len(y1) or len(x2) != len(y2):
         print("Corresponding wavelengths and spectrum need to have identical shape.")
         print("In case of bins choose either the lower or upper bound and use 'up' or 'down', respectively,")
         print("for the argument 'wavelength_bin_direction'.")
     
     # prepare data
-    wavelengths1=np.array(wavelengths1)
-    wavelengths2=np.array(wavelengths2)
-    spectrum1=np.array(spectrum1)
-    spectrum2=np.array(spectrum2)
+    if isinstance(x1,list):
+        x1=np.array(x1)
+    if isinstance(x2,list):
+        x2=np.array(x2)
+    if isinstance(y1,list):
+        y1=np.array(y1)    
+    if isinstance(y2,list):
+        y2=np.array(y2)
 
-    delta_wavelengths1=(wavelengths1[1]-wavelengths1[0])/2
-    delta_wavelengths2=(wavelengths2[1]-wavelengths2[0])/2
-    if wavelength_bin_direction=="up":
-        wavelengthcenters1=wavelengths1+delta_wavelengths1
-        wavelengthcenters2=wavelengths2+delta_wavelengths2
-    elif wavelength_bin_direction=="down":
-        wavelengthcenters1=wavelengths1-delta_wavelengths1
-        wavelengthcenters2=wavelengths2-delta_wavelengths2
-    elif wavelength_bin_direction=="center":
-        wavelengthcenters1=wavelengths1
-        wavelengthcenters2=wavelengths2
+    delta_x1=(x1[1]-x1[0])/2
+    delta_x2=(x2[1]-x2[0])/2
 
-    # make sure the stepsize of spectrum1 is greater or equal than the stepsize of spectrum2
-    if delta_wavelengths1<delta_wavelengths2:
-        delta_wavelengths1,delta_wavelengths2=delta_wavelengths2,delta_wavelengths1
-        spectrum1,spectrum2=spectrum2,spectrum1
-        wavelengthcenters1,wavelengthcenters2=wavelengthcenters2,wavelengthcenters1
+    # make sure the stepsize of y1 is greater or equal than the stepsize of y2
+    switched=False
+    if delta_x1<delta_x2:
+        delta_x1,delta_x2=delta_x2,delta_x1
+        y1,y2=y2,y1
+        x1,x2=x2,x1
+        switched=True
 
-    max_overlap_distance=delta_wavelengths1+delta_wavelengths2
-    full_overlap_distance=delta_wavelengths1-delta_wavelengths2
-    ratio=delta_wavelengths2/delta_wavelengths1
+    max_overlap_distance=delta_x1+delta_x2
+    full_overlap_distance=delta_x1-delta_x2
     
-    overlap_indicator1=np.zeros(len(wavelengthcenters1))
     
-    overlap_neighbours1=[[] for i in wavelengthcenters1]
-    overlap_neighbours2=[[] for i in wavelengthcenters2]
-    weights1=[[] for i in wavelengthcenters1]
-    weights2=[[] for i in wavelengthcenters2]
+    overlap_indicator1=np.zeros(len(x1))
     
-    for index1,value1 in enumerate(wavelengthcenters1):
-        for index2,value2 in enumerate(wavelengthcenters2):
+    #determine points in the overlapping region
+    overlap_neighbours1=[[] for i in x1]
+    overlap_neighbours2=[[] for i in x2]
+    #give weights for interpolation
+    weights1=[[] for i in x1]
+    weights2=[[] for i in x2]
+    #weights are given corresponding to the width of a datapoint in x
+    ratio=delta_x2/delta_x1
+    
+    
+    for index1,value1 in enumerate(x1):
+        for index2,value2 in enumerate(x2):
             
             distance=np.abs(value2-value1)
             if distance<max_overlap_distance:
@@ -86,91 +176,178 @@ def stitch_overlap(wavelengths1,spectrum1,wavelengths2,spectrum2,wavelength_bin_
                     overlap_indicator1[index1]+=ratio
 
                 else:
-                    weight=(delta_wavelengths1-distance+delta_wavelengths2)/(2*delta_wavelengths2)
+                    weight=(delta_x1-distance+delta_x2)/(2*delta_x2)
                     weights1[index1].append(ratio*weight)
                     weights2[index2].append(weight)
                     overlap_indicator1[index1]+=ratio*weight
     
-    new_wavelengths=wavelengthcenters2.tolist()
-    from_wavelengths1=np.zeros(len(wavelengthcenters2),dtype=bool).tolist()
-    wavelengths_index=np.arange(len(wavelengthcenters2),dtype=int).tolist()
+    #take all points of the signal with finer resolution in x as new points
+    new_x=x2.tolist()
+    from_x1=np.zeros(len(x2),dtype=bool).tolist()
+    x_index=np.arange(len(x2),dtype=int).tolist()
     
-    for i in range(len(wavelengthcenters1)):
+    # add all points of the signal with coarse resolution, 
+    # if less than half their width in x is covered by the points of finer resolution
+    for i in range(len(x1)):
         if overlap_indicator1[i]<0.5:
-            new_wavelengths.append(wavelengthcenters1[i])
-            from_wavelengths1.append(True)
-            wavelengths_index.append(i)
-            
-    new_wavelengths=np.array(new_wavelengths)
-    from_wavelengths1=np.array(from_wavelengths1)
-    wavelengths_index=np.array(wavelengths_index,dtype=int)
-    sortindex=np.argsort(new_wavelengths)
-    new_wavelengths=new_wavelengths[sortindex]
-    from_wavelengths1=from_wavelengths1[sortindex]
-    wavelengths_index=wavelengths_index[sortindex]
+            new_x.append(x1[i])
+            from_x1.append(True)
+            x_index.append(i)
+  
+    # prepare the new points in x (transforming to arrays and sorting)
+    new_x=np.array(new_x)
+    from_x1=np.array(from_x1)
+    x_index=np.array(x_index,dtype=int)
+    sortindex=np.argsort(new_x)
+    new_x=new_x[sortindex]
+    from_x1=from_x1[sortindex]
+    x_index=x_index[sortindex]
 
     
-    newspectrum1=np.zeros(len(new_wavelengths))
-    newspectrum2=np.zeros(len(new_wavelengths))
-    newspectrum_weights1=np.zeros(len(new_wavelengths))
-    newspectrum_weights2=np.zeros(len(new_wavelengths))
+    # initialize variables for calculating the new points in y
+    newy1=np.zeros(len(new_x))
+    newy2=np.zeros(len(new_x))
+    new_y_weights1=np.zeros(len(new_x))
+    new_y_weights2=np.zeros(len(new_x))
     
-    for i in range(len(new_wavelengths)):
-        if from_wavelengths1[i]:
-            newspectrum1[i]=spectrum1[wavelengths_index[i]]
-            newspectrum_weights1[i]=1
-            if len(overlap_neighbours1[wavelengths_index[i]])>0:     
+    for i in range(len(new_x)):
+        # if a point comes from x1, newy1 is the corresponding value in y1
+        # and newy2 is the weighted sum from neighbouring points in y2 (linear interpolation)
+        # else it goes the other way around
+        if from_x1[i]:
+            newy1[i]=y1[x_index[i]]
+            new_y_weights1[i]=1
+            if len(overlap_neighbours1[x_index[i]])>0:     
                 weight=0
-                for index,value in enumerate(overlap_neighbours1[wavelengths_index[i]]):
-                    newspectrum2[i]+=spectrum2[value]*weights1[wavelengths_index[i]][index]
-                    weight +=weights1[wavelengths_index[i]][index]
-                newspectrum2[i]/=weight
-                newspectrum_weights2[i]=weight
+                for index,value in enumerate(overlap_neighbours1[x_index[i]]):
+                    newy2[i]+=y2[value]*weights1[x_index[i]][index]
+                    weight +=weights1[x_index[i]][index]
+                newy2[i]/=weight
+                new_y_weights2[i]=weight
         else:       
-            newspectrum2[i]=spectrum2[wavelengths_index[i]]
-            newspectrum_weights2[i]=1
-            if len(overlap_neighbours2[wavelengths_index[i]])>0:
+            newy2[i]=y2[x_index[i]]
+            new_y_weights2[i]=1
+            if len(overlap_neighbours2[x_index[i]])>0:
                 weight=0
-                for index,value in enumerate(overlap_neighbours2[wavelengths_index[i]]):
-                    newspectrum1[i]+=spectrum1[value]*weights2[wavelengths_index[i]][index]
-                    weight +=weights2[wavelengths_index[i]][index]
-                newspectrum1[i]/=weight
-                newspectrum_weights1[i]=weight
+                for index,value in enumerate(overlap_neighbours2[x_index[i]]):
+                    newy1[i]+=y1[value]*weights2[x_index[i]][index]
+                    weight +=weights2[x_index[i]][index]
+                newy1[i]/=weight
+                new_y_weights1[i]=weight
 
-    overlap_region=(newspectrum_weights1*newspectrum_weights2)>0
-    overlap1=newspectrum1[overlap_region]
-    overlap2=newspectrum2[overlap_region]
+    # produce a mask for the new points that is True within the overlap region and otherwise False
+    overlap_region=(new_y_weights1*new_y_weights2)>0
+    overlap1=newy1[overlap_region]
+    overlap2=newy2[overlap_region]
 
+    # adjust the scale by comparing the mean within the overlap region 
     factor1=np.mean(overlap2)/np.mean(overlap1)
-    if scale_adjustment:
-        newspectrum1*= factor1
-
-    newspectrum=newspectrum1*newspectrum_weights1 + newspectrum2*newspectrum_weights2
-    newspectrum /= (newspectrum_weights1+newspectrum_weights2)
-    
-    if newbins:
-        nbins=[]
-        for i in range(len(new_wavelengths)-1):
-            nbins.append(0.5*(new_wavelengths[i]+new_wavelengths[i+1]))
-        startdiff=nbins[1]-nbins[0]
-        enddiff=nbins[-1]-nbins[-2]
-        nbins=[nbins[0]-startdiff]+nbins
-        nbins.append(nbins[-1]+enddiff)
-        return new_wavelengths,newspectrum,nbins
+    if not scale_adjustment:
+        factor1=1
         
-    return new_wavelengths,newspectrum
+    newy1*= factor1
+    if verbose:
+        if switched:
+            print("scale factor adjusting y2 to y1 is "+str(factor1))
+        else:
+            print("scale factor adjusting y1 to y2 is "+str(factor1))
+            
+    # actually execute the weighted sum 
+    new_y=newy1*new_y_weights1 + newy2*new_y_weights2
+    new_y /= (new_y_weights1+new_y_weights2)
+        
+    return new_x,new_y
     
+#%%
+
+def get_emd_with_metadata(filepath):
+    """
+    Read TEM-imgages as .emd-files 
+
+    Args:
+        filepath (string): relative or absolute path to the file.
+
+    Returns:
+        image (MxN array_like): 2D image with only one intensity-channel (gray-scale).
+        
+        metadata (dict): Dictionary containing the most important metadata.
+    """
+    image_with_metadata=h5py.File(filepath)
+    metadata=dict()
+    kw=list(image_with_metadata["Data/Image"].keys())[0]
+    image=image_with_metadata["Data/Image/"+kw+"/Data"][:]
+
+    ascii_char=""
+    for num in image_with_metadata["Data/Image/"+kw+"/Metadata"][:,0]:
+        ascii_char += chr(num)
+        
+    allmetadata=ast.literal_eval(ascii_char[:ascii_char.find("\n")])
+    #print(allmetadata)
+    
+    unixtimestamp=allmetadata["Acquisition"]["AcquisitionStartDatetime"]["DateTime"]
+    metadata["unix_timestamp"]=int(unixtimestamp)
+    uts=datetime.datetime.fromtimestamp(int(unixtimestamp))
+    metadata["datetime"]=uts.strftime('%Y.%m.%d, %H:%M:%S')
+
+    metadata["beam_mode"]=allmetadata["Optics"]["IlluminationMode"]
+    metadata["detector_name"]=allmetadata["BinaryResult"]["Detector"]
+
+
+    pix_to_nm=np.double(allmetadata["BinaryResult"]["PixelSize"]["width"])*10**9
+    metadata["pixelsize_nm"]=pix_to_nm
+    
+    metadata["camera_length_mm"]=np.double(allmetadata["Optics"]["CameraLength"])*1000
+    metadata["frame_time_sec"]=np.double(allmetadata["Scan"]["FrameTime"])
+    if metadata["detector_name"]=="HAADF":    
+        metadata["dwell_time_microsec"]=np.double(allmetadata["Scan"]["DwellTime"])*10**6
+    else:
+        metadata["exposure_time_sec"]=np.double(allmetadata["Detectors"]["Detector-0"]["ExposureTime"])
+    
+    metadata["x_mm"]=np.double(allmetadata["Stage"]["Position"]["x"])*1000
+    metadata["y_mm"]=np.double(allmetadata["Stage"]["Position"]["y"])*1000
+    metadata["z_mm"]=np.double(allmetadata["Stage"]["Position"]["z"])*1000
+    
+    # it seems weird, that scan rotation is only saved with this detector
+    if metadata["detector_name"]=="HAADF":
+        metadata["scan_rotation_rad"]=np.double(allmetadata["Scan"]["ScanRotation"])
+    
+    #assuming quadratic camera chip
+    size=pix_to_nm*image.shape[0]
+    metadata["field_of_view_microns"]=size/1000
+    metadata["image_shape"]=image.shape[:2]
+
+    metadata["acceleration_volt"]=np.double(allmetadata["Optics"]["AccelerationVoltage"])
+
+    if metadata["beam_mode"] != "Parallel":
+        metadata["beam_convergence_mrad"]=np.double(allmetadata["Optics"]["BeamConvergence"])*1000
+        
+        metadata["collection_angle_start_mrad"]=np.double(
+            allmetadata["Detectors"]["Detector-1"]["CollectionAngleRange"]["begin"])*1000
+        metadata["collection_angle_end_mrad"]=np.double(
+            allmetadata["Detectors"]["Detector-1"]["CollectionAngleRange"]["end"])*1000
+    
+    image=image[:,:,0]
+    return image,metadata
+
 
 #%% get_dm4_with_metadata
 def get_dm4_with_metadata(filepath):
-    """read a dm4-file and return the variables data and metadata as dictionaries
+    """
+    read a dm4-file and return the variables data and metadata as dictionaries
     data includes everything immediately important
     metadata contains all other information
     
-    Important missing parameters are  current and for spectra:
+    Important missing parameters are electric current and  only for spectra:
     acquisition time and acquisition date are missing
-    """
 
+    Args:
+        filepath (string): relative or absolute path to the file.
+
+    Returns:
+        data (dict): data["data"] yields the data other keywords contain the most important metadata.
+        
+        metadata (dict): Dictionary containing further metadata.
+    """
 
     relevant_metadata_list=["Grating","Objective focus (um)","Stage X","Stage Y","Stage Z","Stage Beta","Stage Alpha","Indicated Magnification",
     "Bandpass","Detector","Filter","PMT HV","Sensitivity","Slit Width","Sample Time","Dwell time (s)","Image Height","Image Width",
@@ -196,6 +373,18 @@ def get_dm4_with_metadata(filepath):
 
 #%% get_files_of_format
 def get_files_of_format(path,ending):
+    """
+    searches files with the given ending within the directory
+
+    Args:
+        path (string): relative or absolute path to a directory.
+        
+        ending (string): typical usecase: ".png" to get all png-images.
+
+    Returns:
+        pathlist (list): list of the paths of files with the specific ending
+
+    """
     files = os.listdir(path)
     desired_format=ending
     pathlist=[]
@@ -211,7 +400,26 @@ def get_files_of_format(path,ending):
     return pathlist
 #%%
 
-def get_all_files(folder,ending=None,start=None):
+def get_all_files(folder='.',ending=None,start=None):
+    """
+    searches recursively (including all subdirectories) 
+    for all files with the given start and ending 
+    within the given folder
+
+    Args:
+        folder (string, optional): directory name. Defaults to '.'.
+        
+        ending (string, optional): typical usecase: ".png" to get all png-images. 
+        Defaults to None.
+        
+        start (string, optional): pattern in the beginning of each filename. 
+        for example use "img" here: "img1.png,img2.tif,img3.jpeg" 
+        Defaults to None.
+        
+    Returns:
+        filepaths (list): list of paths.
+
+    """
     filenames=[]#os.listdir(folder)
     for path, subdirs, files in os.walk(folder):
         for name in files:
@@ -395,22 +603,22 @@ def intersect(A, B, C, D):
 def get_angular_dist(image, borderdist=100, centerdist=20, plotcheck=False):
     """
     angles measured in degrees starting from horizontal line counterclockwise 
-    (like phi in polar coordinate)    
+    (like phi in polar coordinate)  
 
-    Parameters
-    ----------
-    image : MxN array
-    borderdist : int, optional
-        DESCRIPTION. The default is 100.
-    centerdist : int, optional
-        DESCRIPTION. The default is 20.
-    plotcheck : bool, optional
-        DESCRIPTION. The default is False.
+    Args:
+        image (TYPE): DESCRIPTION.
+        
+        borderdist (TYPE, optional): DESCRIPTION. Defaults to 100.
+        
+        centerdist (TYPE, optional): DESCRIPTION. Defaults to 20.
+        
+        plotcheck (TYPE, optional): DESCRIPTION. Defaults to False.
 
-    Returns
-    -------
-    angles:
-    intensity:
+    Returns:
+        angledeg (TYPE): DESCRIPTION.
+        
+        values (TYPE): DESCRIPTION.
+
     """
     if image.shape[0] != image.shape[1]:
         print("Warning: image is cropped to square")
@@ -534,13 +742,13 @@ def make_circular_mask(x0, y0, r, image):
         return cv2.circle(mask, [x0, y0], r, 1, -1)
 
 
-#%% get_max
-def get_max(z):
-    "returns the indices of the maximum value of an array MxN"
-    maxpos = np.argmax(z)
-    x0 = maxpos // z.shape[1]
-    y0 = maxpos % z.shape[1]
-    return np.array([x0, y0]).astype(int)
+#%% get_max deprecated
+#def get_max(z):
+#    "returns the indices of the maximum value of an array MxN"
+#    maxpos = np.argmax(z)
+#    x0 = maxpos // z.shape[1]
+#    y0 = maxpos % z.shape[1]
+#    return np.array([x0, y0]).astype(int)
 
 
 #%% pascal triangle

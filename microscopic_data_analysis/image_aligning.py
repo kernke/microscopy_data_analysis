@@ -44,7 +44,7 @@ def max_from_2d(A):
     Returns:
         maximum_position (tuple): containing two integers.
         
-        maximum_value (scalar): datatype deping on the input.
+        maximum_value (scalar): datatype depending on the input.
 
     """
 
@@ -74,7 +74,9 @@ def stitch(im1, im2):
         stitched (KxL array_like): montage of the two images.
 
     """
+
     pc = align(im1, im2)
+    
     pcs=im1.shape
     
     sheet = np.zeros(pcs + np.abs(pc))
@@ -98,10 +100,65 @@ def stitch(im1, im2):
     stitched=sheet / sheetdiv
     return stitched
 
+#%%
 
+
+def stitch_given_shift(im1, im2,pc):
+    """
+    stitch two images together to one, by correcting a translational offset
+    The images must have the the same shape (MxN) and some overlap 
+    
+    Args:
+        im1 (MxN array_like): first image.
+        
+        im2 (MxN array_like): second image.
+
+    Returns:
+        stitched (KxL array_like): montage of the two images.
+
+    """
+    
+    
+    sim1=im1.shape
+    sim2=im2.shape
+    
+    sres=np.zeros(2,dtype=int)
+    im1pos=np.zeros(2,dtype=int)
+    im2pos=np.zeros(2,dtype=int)
+
+    
+    for i in range(2):
+        if pc[i]>0:
+            sres[i]=max(sim1[i],sim2[i]+pc[i])
+            im2pos[i]=pc[i]
+            #im1pos[i]=0
+        else:
+            im1pos[i]=-pc[i]
+            #im2pos[i]=0
+            if sim2[i]+pc[i] > sim1[i]:
+                sres[i]=sim2[i]
+            else:    
+                sres[i]=sim1[i]-pc[i]
+
+        
+    sheet = np.zeros(sres)
+    sheetdiv = np.zeros(sres)
+
+    sheet[im1pos[0] : im1pos[0] + sim1[0], im1pos[1] : im1pos[1] + sim1[1]] += im1
+    sheetdiv[im1pos[0] : im1pos[0] + sim1[0], im1pos[1] : im1pos[1] + sim1[1]] += np.ones(sim1)
+
+    sheet[im2pos[0] : im2pos[0] + sim2[0], im2pos[1] : im2pos[1] + sim2[1]] += im2
+    sheetdiv[im2pos[0] : im2pos[0] + sim2[0], im2pos[1] : im2pos[1] + sim2[1]] += np.ones(sim2)
+
+    sheetdiv[sheetdiv == 0] = -1
+    stitched=sheet / sheetdiv
+    return stitched
+
+
+#%%
 #%% align
 
-def align(im1, im2,verbose=False):
+def align(im1, im2,printing=False,_verbose=False):
     """
     calculate the translational offset of image im2 relative to image im1
     using phase correlation between the two image
@@ -112,8 +169,11 @@ def align(im1, im2,verbose=False):
         
         im2 (MxN array_like): second image.
         
-        verbose (bool, optional): set to "True" for printing more information about the function execution. 
+        printing (bool, optional): set to "True" for printing more information about the function execution. 
         Defaults to False.
+        
+        verbose (bool,optional): set to "True" for additionally returning indices about the relative
+        positioning. Defaults to False.
 
     Returns:
         offset (tuple): containing two integers.
@@ -193,7 +253,7 @@ def align(im1, im2,verbose=False):
     if not optimal_solution:
         print("Warning: optimal solution not found")
         
-    if verbose:
+    if printing:
         print("Maximum position of whole phase correlation matrix:")
         print(pc)
         print("Order of partial correlations (1d):")
@@ -215,7 +275,7 @@ def align(im1, im2,verbose=False):
         print("maximum values:")
         print(pc1vals)
         print("resulting index")
-        print(index1)
+        print(index1) 
 
     if index0<3:
         if pc[0] > pcs[0] / 2:
@@ -229,14 +289,32 @@ def align(im1, im2,verbose=False):
     elif index1==3:
         pc[1] = pc[1]-pcs[1]
 
-    return pc
+    if _verbose:
+        return pcm,(index0,index1)
+    else:
+        return pc
 
 
 #%% align precise
-def align_precise(im1, im2,delta=None,show=False,artifacts=None):
-    pcm = phase_correlation(im1, im2)
-    #adder=0.0*np.min(np.abs(pcm))
-    pcm -= np.min(pcm)#- adder
+def align_com_precise(im1, im2,delta=None,show=False,artifacts=None):
+    """
+    
+
+    Args:
+        im1 (TYPE): DESCRIPTION.
+        im2 (TYPE): DESCRIPTION.
+        delta (TYPE, optional): DESCRIPTION. Defaults to None.
+        show (TYPE, optional): DESCRIPTION. Defaults to False.
+        artifacts (TYPE, optional): DESCRIPTION. Defaults to None.
+
+    Returns:
+        pc (TYPE): DESCRIPTION.
+
+    """
+    
+    pcm,(index0,index1) = align(im1,im2,_verbose=True)
+
+    pcm -= np.min(pcm)
     pcb,orig=img_periodic_tiling(pcm)
     rows=int(orig[0][0]//2)
     cols=int(orig[1][0]//2)
@@ -259,7 +337,6 @@ def align_precise(im1, im2,delta=None,show=False,artifacts=None):
         plt.plot(compos[1]-(maxpos[1]-delt),compos[0]-(maxpos[0]-delt),'rx',label='center of mass')
         plt.plot(delt,delt,'wx',label='global max')
         plt.plot(-maxpos[1]+pcr.shape[1]//2+delt,-maxpos[0]+pcr.shape[0]//2+delt,'x',c='fuchsia',label='origin')
-
         plt.legend()
         plt.colorbar()
         plt.show()
@@ -270,12 +347,18 @@ def align_precise(im1, im2,delta=None,show=False,artifacts=None):
     
     pcs = np.array(np.shape(pcm))
 
-    if pc[0] > pcs[0] / 2.:
-        pc[0] = pc[0] - pcs[0]
-
-    if pc[1] > pcs[1] / 2.:
-        pc[1] = pc[1] - pcs[1]
-
+    if index0<3:
+        if pc[0] > pcs[0] / 2:
+            pc[0] = pc[0] - pcs[0]
+    elif index0==3:
+        pc[0] = pc[0]-pcs[0]
+        
+    if index1<3:
+        if pc[1] > pcs[1] / 2:
+            pc[1] = pc[1] - pcs[1]
+    elif index1==3:
+        pc[1] = pc[1]-pcs[1]
+        
     return pc
 
 
@@ -294,11 +377,11 @@ def stack_shift_precise(imgs,delta=None,show=False,artifacts=None):
     #img=imgs[0]
     shifts=np.zeros([len(imgs),2])
     for i in range(len(imgs)-1):
-        shifts[i+1]=align_precise(imgs[i],imgs[i+1],delta=delta,show=show,artifacts=artifacts)
+        shifts[i+1]=align_com_precise(imgs[i],imgs[i+1],delta=delta,show=show,artifacts=artifacts)
         
     return np.cumsum(shifts,axis=0)#shifts
 
-def stack_align_precise(imgs,shifts):
+def stack_align_com_precise(imgs,shifts):
 
     ma_sh=np.max(shifts,axis=0)
     mi_sh=np.min(shifts,axis=0)
@@ -345,7 +428,10 @@ def fine_tuning_shifts(aligned_stack,delta=4):
             deltaj=deltarange[j]
             for k in range(Nd):
                 deltak=deltarange[k]
-                changes[j,k]=np.sum((img0-stack[i+1][delta+deltaj:-(delta-deltaj)-1,delta+deltak:-(delta-deltak)-1])**2)
+                #least squares
+                #changes[j,k]=np.sum((img0-stack[i+1][delta+deltaj:-(delta-deltaj)-1,delta+deltak:-(delta-deltak)-1])**2)
+                #correlation
+                changes[j,k]=-np.sum((img0*stack[i+1][delta+deltaj:-(delta-deltaj)-1,delta+deltak:-(delta-deltak)-1])**2)
         idx0,idx1=np.where(changes==np.min(changes))
         shifts[i]=idx0[0],idx1[0]
     shifts+= -delta
@@ -625,24 +711,34 @@ def absolute_stitching_positions(
 
 
 #%% contrast_correction
-def contrast_correction(images_c):
-    # normalize the brightness of all pictures in the series, by multiplying each image
-    # with a factor, so that the maximum of the pixel-value-histogram of every image is
-    # at the same position
-    imdim = images_c[0].shape
+def contrast_correction(images):
+    """
+    normalize the brightness of all pictures in the series, by multiplying each image
+    with a factor, so that the maximum of the pixel-value-histogram of every image is
+    at the same position
+
+    Args:
+        images (list of images): DESCRIPTION.
+
+    Returns:
+        images_corrected (list of images): DESCRIPTION.
+
+    """
+    # 
+    imdim = images[0].shape
     hists = []
-    for i in range(len(images_c)):
-        flatim = np.reshape(images_c[i], imdim[0] * imdim[1])
+    for i in range(len(images)):
+        flatim = np.reshape(images[i], imdim[0] * imdim[1])
         vals, bins = np.histogram(flatim, 100)
         maxpos = np.argmax(vals[5:]) + 5
         brightness = (bins[maxpos] + bins[maxpos + 1]) / 2
         hists.append(brightness)
 
     ref = np.mean(hists)
-    images_cc = []
-    for i in range(len(images_c)):
-        images_cc.append(images_c[i] * ref / hists[i])
-    return images_cc
+    images_corrected = []
+    for i in range(len(images)):
+        images_corrected.append(images[i] * ref / hists[i])
+    return images_corrected
 
 
 #%% drift_correction
@@ -1173,3 +1269,148 @@ def align_images(im1s, im2, p1s, p2, verbose=False):
             return im1res, img2Reg, matrices, reswidth, resheight, width_shift, height_shift
         else:
             return im1res, img2Reg
+        
+#%%
+def sift_align_matches(img1,img2,ratio_threshold=0.5):
+    sift = cv2.SIFT_create()
+
+    kp1, des1 = sift.detectAndCompute(img1,None)
+    kp2, des2 = sift.detectAndCompute(img2,None)
+
+    #img=cv2.drawKeypoints(img1,kp,img1)
+    
+    #Initialize the BFMatcher for matching 
+    BFMatch = cv2.BFMatcher() 
+    Matches = BFMatch.knnMatch(des1,des2,k=2) 
+      
+    # Need to draw only good matches, so create a mask 
+    good_matches = [[0,0] for i in range(len(Matches))] 
+    
+    good=[]
+    
+    # ratio test as per Lowe's paper 
+    for i,(m,n) in enumerate(Matches): 
+        if m.distance < ratio_threshold*n.distance: 
+            good_matches[i]=[1,0] 
+            good.append(m)
+
+    ptsA = np.zeros((len(good), 2), dtype="float")
+    ptsB = np.zeros((len(good), 2), dtype="float")
+    
+    # loop over the top matches
+    for i,m in enumerate(good):
+        ptsA[i]= (kp1[m.queryIdx].pt[0],kp1[m.queryIdx].pt[1])
+        ptsB[i]= (kp2[m.trainIdx].pt[0],kp2[m.trainIdx].pt[1])
+
+              
+    # Draw the matches using drawMatchesKnn() 
+    Matched = cv2.drawMatchesKnn(img1,       
+                                 kp1,    
+                                 img2, 
+                                 kp2, 
+                                 Matches, 
+                                 outImg = None, 
+                                 matchColor = (0,0,255),   
+                                 singlePointColor = (0,255,255), 
+                                 matchesMask = good_matches, 
+                                 flags = 0
+                                ) 
+    return Matched,ptsA,ptsB
+
+#%%
+def stack_sift_align_to_first(stack,ratio=0.5,verbose=False):
+    
+    #get keypoints and good macthes
+    ptsBs=[]
+    ptsAs=[]
+    for i in range(len(stack)-1):    
+        matched,ptsA,ptsB=sift_align_matches(stack[0], 
+                                                stack[i+1],ratio_threshold=ratio)
+        ptsAs.append(ptsA)
+        ptsBs.append(ptsB)
+
+    # make a dictionary of matching points over the whole stack 
+    kpdict=dict()
+    for i in range(len(ptsAs)):
+        for j in range(len( ptsAs[i])):
+            ptA=(ptsAs[i][j][0],ptsAs[i][j][1])
+            ptB=(ptsBs[i][j][0],ptsBs[i][j][1])
+            
+            if ptA in kpdict:
+                kpdict[ptA].append(ptB)
+            else:
+                kpdict[ptA]=[ptB]
+    # choose only keypoints that persist in all images
+    persistent_ptsA=[]
+    persistent_ptsBs=[]
+    for i in kpdict:
+        if len(kpdict[i])==len(ptsAs):
+            persistent_ptsA.append(i)
+            persistent_ptsBs.append(kpdict[i])
+    resulting_ptsA=np.array(persistent_ptsA)
+    number_of_images_to_align=len(ptsAs)
+    number_of_persistent_matches=len(resulting_ptsA)
+    
+    print(number_of_persistent_matches)
+    #restructure points B
+    resulting_ptsBs=np.zeros([number_of_images_to_align,
+                     number_of_persistent_matches,
+                     2])    
+    for i in range(number_of_persistent_matches):
+        resulting_ptsBs[:,i,:]=persistent_ptsBs[i]
+    
+    
+    #calculate the homography matrices and apply them    
+    
+    if not verbose:
+        im1s,img0=align_images(stack[1:],stack[0], resulting_ptsBs[:], resulting_ptsA)
+        imlist=[img0]+im1s
+        return imlist
+    else:
+        (im1s, img0, matrices, reswidth, resheight, 
+         width_shift, height_shift)=align_images(
+                                                 stack[1:],stack[0], 
+                                                 resulting_ptsBs[:], resulting_ptsA,verbose=True)
+        imlist=[img0]+im1s
+        metadata=dict()
+        metadata["matrices"]=matrices
+        metadata["reswidth"]=reswidth
+        metadata["resheight"]=resheight
+        metadata["width_shift"]=width_shift
+        metadata["height_shift"]=height_shift
+        
+        return imlist,metadata
+    
+    
+def stack_align_from_matrices(stack,metadata):
+    """
+    Aligns a stack of images using the homographic transformation calculated
+    by the function stack_sift_align_to_first() with argument verbose=True
+
+    Args:
+        stack (KxMxN array_like or list of MxN array_likes): stack of images 
+        (different image dimensionss, e.g. one with 1024x512 and another with 234x653, are possible).
+        
+        metadata (dictionary): transformational information as given by stack_sift_align_to_first.
+
+    Returns:
+        imlist (list of MxN): list of aligned images.
+
+    """
+    
+    reswidth=metadata["reswidth"]
+    resheight=metadata["resheight"]
+    width_shift=metadata["width_shift"]    
+    height_shift=metadata["height_shift"]
+    matrices=metadata["matrices"]
+    
+    im1s=[]
+    for i in range(len(stack)-1):
+        img=align_image_fast1(stack[i+1], matrices[i], reswidth, resheight)
+        im1s.append(img)
+
+    img0=align_image_fast2(stack[0], reswidth, resheight, width_shift, height_shift)
+    
+    imlist=[img0]+im1s
+    return imlist  
+    
