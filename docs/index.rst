@@ -10,7 +10,9 @@ Welcome to microscopic data analysis docs's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-
+   stitch_overlap
+   microscopic_data_analysis
+   peak_fitting
 
 Indices and tables
 ==================
