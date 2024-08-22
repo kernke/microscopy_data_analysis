@@ -23,6 +23,8 @@ setup(name='microscopic_data_analysis',
             'h5py',
             'scikit-image',
             'imageio',
+            'ncempy',
             'sphinx-rtd-theme',
-            'ncempy'
+            'nbsphinx_link',
+            'pandoc'
                ])
