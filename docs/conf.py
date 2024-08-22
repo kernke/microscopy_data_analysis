@@ -35,40 +35,40 @@ templates_path = ['_templates']
 
 
 # autoapi gets the docstrings for all public modules in the package
-autoapi_type = 'python'
-autoapi_dirs = ['../microscopic_data_analysis']
-autoapi_template_dir = '_templates/autoapi'
-autoapi_root = 'api'
-autoapi_options = [
-    'members',
-    'inherited-members',
-    #'undoc-members', # show objects that do not have doc strings
-    #'private_members', # show private objects (_variable)
-    #'show-inheritance',
-    'show-module-summary',
-    #'special-members', # show things like __str__
-    #'imported-members', # document things imported within each module
-]
-autoapi_member_order = 'groupwise'  # groups into classes, functions, etc.
-autoapi_python_class_content = 'class'  # include class docstring from class and/or __init__
-autoapi_keep_files = False  # keep the files after generation
-autoapi_add_toctree_entry = True  # need to manually add to toctree if False
-autoapi_generate_api_docs = True  # will not generate new docs when False
+#autoapi_type = 'python'
+#autoapi_dirs = ['../microscopic_data_analysis']
+#autoapi_template_dir = '_templates/autoapi'
+#autoapi_root = 'api'
+#autoapi_options = [
+#    'members',
+#    'inherited-members',
+#    #'undoc-members', # show objects that do not have doc strings
+#    #'private_members', # show private objects (_variable)
+#    #'show-inheritance',
+#    'show-module-summary',
+#    #'special-members', # show things like __str__
+#    #'imported-members', # document things imported within each module
+#]
+#autoapi_member_order = 'groupwise'  # groups into classes, functions, etc.
+#autoapi_python_class_content = 'class'  # include class docstring from class and/or __init__
+#autoapi_keep_files = False  # keep the files after generation
+#autoapi_add_toctree_entry = True  # need to manually add to toctree if False
+#autoapi_generate_api_docs = True  # will not generate new docs when False
 
 
 
 
 
 #change "html_static_path have entry value _static, this is default setting"
-html_static_path = [
-    #"_static"
-]
+html_static_path = ["docs/_static"]
+#    #"_static"
+#]
 
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store','deprecated.py','under_construction.py']
 
 
 # -- Options for HTML output -------------------------------------------------

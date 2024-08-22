@@ -4,14 +4,6 @@ microscopic\_data\_analysis package
 Submodules
 ----------
 
-microscopic\_data\_analysis.deprecated module
----------------------------------------------
-
-.. automodule:: microscopic_data_analysis.deprecated
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 microscopic\_data\_analysis.general\_util module
 ------------------------------------------------
 
@@ -64,14 +56,6 @@ microscopic\_data\_analysis.peak\_fitting module
 ------------------------------------------------
 
 .. automodule:: microscopic_data_analysis.peak_fitting
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-microscopic\_data\_analysis.under\_construction module
-------------------------------------------------------
-
-.. automodule:: microscopic_data_analysis.under_construction
    :members:
    :undoc-members:
    :show-inheritance:

@@ -79,19 +79,23 @@ def get_n_peaks_1d(y, x=None, delta=0, n=5, roi=None):
     and setting values near the maximum with distance +-delta
     to a median value of y, then repeating the process n times
 
-    Parameters
-    ----------
-    y: array
+    Args:
+        y (array_like): DESCRIPTION.
+        
+        x (array_like, optional): DESCRIPTION. 
+        Defaults to None.
+        
+        delta (float, optional): DESCRIPTION. 
+        Defaults to 0.
+        
+        n (int, optional): number of peaks. 
+        Defaults to 5.
+        
+        roi (tuple, optional): DESCRIPTION. Defaults to None.
 
-    optional:
-    x: array, defaults to None
-    delta: float, defaults to 0
-    n: int, defaults to 1
-    roi: tuple, defaults to None
+    Returns:
+        n_peaks (array_like): with length n containing the positions of the n peaks.
 
-    Returns
-    -------
-    array with length n containing the positions of the n peaks
     """
 
     if x is None:

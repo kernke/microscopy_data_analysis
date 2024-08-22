@@ -64,39 +64,132 @@ def img_morphLaplace(image, kernel):
 
 
 #%% gammaCorrection
-def img_gammaCorrection(src, gamma):
+def img_gammaCorrection(img, gamma):
+    """
+    transformation adjusting the gamma level
+    (gamma=1 means no change)
+
+    Args:
+        img (MxN array_like): np.uint8.
+        
+        gamma (float): gamma value between 0 and ~10.
+
+    Returns:
+        gamma_transformed_image (MxN array_like): np.uint8.
+
+    """
     invGamma = 1 / gamma
 
     table = [((i / 255) ** invGamma) * 255 for i in range(256)]
     table = np.array(table, np.uint8)
 
-    return cv2.LUT(src, table)
+    return cv2.LUT(img, table)
 #%%
 def img_to_uint8(img,imgmax=255):
+    """
+    transform contrast range to unsigned integer 8bit
+
+    Args:
+        img (MxN array_like): input image.
+        
+        imgmax (int, optional): optionally reduce contrast range, 
+        by setting a lower, than datatype given, threshold to the maximum value. 
+        Defaults to 255.
+
+    Returns:
+        datatype_conform_image (MxN array_like): np.uint8.
+
+    """
     img -= np.min(img)
     return (img / np.max(img) * (imgmax+0.5)).astype(np.uint8)
 
 def img_to_uint16(img,imgmax=65535):
+    """
+    transform contrast range to unsigned integer 16bit
+
+    Args:
+        img (MxN array_like): input image.
+        
+        imgmax (int, optional): optionally reduce contrast range, 
+        by setting a lower, than datatype given, threshold to the maximum value. 
+        Defaults to 65535.
+
+    Returns:
+        datatype_conform_image (MxN array_like): np.uint16.
+
+    """
     img -= np.min(img)
     return (img / np.max(img) * (imgmax+0.5)).astype(np.uint16)
 
-def img_to_int8(img,imgmax=255):
+def img_to_int8(img,imgmax=127):
+    """
+    transform contrast range to signed integer 8bit
+
+    Args:
+        img (MxN array_like): input image.
+        
+        imgmax (int, optional): optionally reduce contrast range, 
+        by setting a lower, than datatype given, threshold to the maximum value. 
+        Defaults to 127.
+
+    Returns:
+        datatype_conform_image (MxN array_like): np.int8.
+
+    """
+    imgmax+=128
     img -= np.min(img)
     return (img / np.max(img) * (imgmax+0.5) -128).astype(np.int8)
 
-def img_to_int16(img,imgmax=65535):
+def img_to_int16(img,imgmax=32767):
+    """
+    transform contrast range to signed integer 16bit
+
+    Args:
+        img (MxN array_like): input image.
+        
+        imgmax (int, optional): optionally reduce contrast range, 
+        by setting a lower, than datatype given, threshold to the maximum value. 
+        Defaults to 32767.
+
+    Returns:
+        datatype_conform_image (MxN array_like): np.int16.
+
+    """
+    imgmax+=32768
     img -= np.min(img)
     return (img / np.max(img) * (imgmax+0.5) -32768).astype(np.int16)
 
 
-def img_to_half_int8(img,imgmax=255):
+def img_to_half_int8(img):
+    """
+    transform contrast to half the range of signed integer 8bit,
+    so values are between -64 and 63 for possible range -128 to 127
+
+    Args:
+        img (MxN array_like): input image.
+
+    Returns:
+        datatype_conform_image (MxN array_like): np.int8.
+
+    """
     img -= np.min(img)
-    return (img / np.max(img) * ((imgmax+0.5)/2) -64).astype(np.int8)
+    return (img / np.max(img) * 63.5 -64).astype(np.int8)
 
 
-def img_to_half_int16(img,imgmax=65535):
+def img_to_half_int16(img):
+    """
+    transform contrast to half the range of signed integer 16bit,
+    so values are between -16384 and 16383 for possible range -32768 to 32767
+
+    Args:
+        img (MxN array_like): input image.
+
+    Returns:
+        datatype_conform_image (MxN array_like): np.int16.
+
+    """
     img -= np.min(img)
-    return (img / np.max(img) * ((imgmax+0.5)/2)-16384).astype(np.int16)
+    return (img / np.max(img) * 16383.5-16384).astype(np.int16)
 
 
 #%% noise_line_suppression
@@ -408,7 +501,21 @@ def img_transform_minimal(image, imshape,kernel):
 
 
 def img_anms(img, mask, thresh_ratio=1.5, ksize=5, asympix=0, damping=5):
-    
+    """
+    asymmetric non maximum supppression
+
+    Args:
+        img (TYPE): DESCRIPTION.
+        mask (TYPE): DESCRIPTION.
+        thresh_ratio (TYPE, optional): DESCRIPTION. Defaults to 1.5.
+        ksize (TYPE, optional): DESCRIPTION. Defaults to 5.
+        asympix (TYPE, optional): DESCRIPTION. Defaults to 0.
+        damping (TYPE, optional): DESCRIPTION. Defaults to 5.
+
+    Returns:
+        TYPE: DESCRIPTION.
+
+    """
     newimg = copy.deepcopy(img)
     cimg = cv2.sepFilter2D(
         img, cv2.CV_64F, np.ones(1), np.ones(ksize), borderType=cv2.BORDER_ISOLATED
