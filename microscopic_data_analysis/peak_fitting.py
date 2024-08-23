@@ -8,7 +8,32 @@ from scipy.optimize import curve_fit
 import copy
 
 #%% peak_com
-def peak_com(y,x=None,roi=None,bins=None):
+def center_of_mass(y,x=None,bins=None,roi=None,):
+    """
+    calculate the center of mass of the given data y, within the region-of-interest.
+    Either x or bins can be given as x-axis data, otherwise
+    x is constructed as the indices enumerating y     
+
+    Args:
+        y (array_like): data value array with length N.
+
+        x (array_like, optional): x-positions of the y-points with length N. 
+        Defaults to None.
+
+        bins (array_like, optional): thresholds surrounding x-positions of the y-points,
+        with length N+1.
+        Defaults to None.
+
+        roi (tuple, optional): two thresholds in increasing order. 
+        (thresholds of roi, cut only at the datapoints (no interpolation))
+        Defaults to None.
+
+    Returns:
+        com (float): center of mass.
+
+        maxpos (float or int): position of biggest value.
+
+    """
     if x is None:
         xx=np.arange(len(y))
     else:
@@ -52,23 +77,6 @@ def peak_com(y,x=None,roi=None,bins=None):
     res=np.sum(xx[start: end]*xwidths[start:end] * y[start:end]) / np.sum(y[start:end]*xwidths[start:end])
 
     return res, pos
-
-
-
-#def peak_com(y, delta=None, roi=None):
-#    if roi is None:
-#        pos = np.argmax(y)
-#    else:
-#        pos = roi[0] + np.argmax(y[roi[0] : roi[1]])
-#    if delta is None:
-#        delta = min(pos, len(y) - pos)
-#        print(delta)
-#        start = pos - delta
-#        end = pos + delta
-#    else:
-#        start = max(0, pos - delta)
-#        end = min(len(y), pos + delta)
-#    return np.sum(np.arange(start, end) * y[start:end]) / np.sum(y[start:end]), pos
 
 
 #%%
@@ -351,13 +359,30 @@ def Lorentzian(x,x0,A,gamma):
 #%%
 def calculate_FWHM(x_data,y_data,superres=2):
     """
-    Returns fwhm, fwhm_positions, peak_height, peak_positon
-    """
-    #cubic_interp = interp1d(x_data,y_data, kind='cubic') #interpolation for better fit
+    calculate full width half maximum
+    (robust to non uniform spacing and noise)
 
-    x=np.linspace(x_data[0],x_data[-1],len(x_data)*superres)
+    Args:
+        x_data (list or array_like): input data.
+        
+        y_data (list or array_like): input data.
+        
+        superres (float, optional): DESCRIPTION. 
+        Defaults to 2.
+
+    Returns:
+        fwhm (float): full width half maximum value.
+        
+        fwhm_positions (tuple): left and right peak flank positions.
+        
+        peak_height (float).
+        
+        peak_positon (float).
+
+    """
+    x=np.linspace(x_data[0],x_data[-1],int(len(x_data)*superres))
     
-    I=np.interp(x,x_data,y_data)#cubic_interp(x) 
+    I=np.interp(x,x_data,y_data)
     
     H=np.max(I)/2
     maxpos=np.argmax(I)
@@ -394,6 +419,34 @@ def calculate_FWHM(x_data,y_data,superres=2):
 
 #%%
 def peak_fit(y_data,x_data=None,roi=None,plot=False,orders_of_deviation=2,verbose=False):
+    """
+    peak fitting routine, that contains 4 peak functions:
+    Gaussian, Lorentzian, Pseudo-Voigt, Asymmetric-Pseudo-Voigt
+    
+
+    Args:
+        y_data (TYPE): DESCRIPTION.
+        
+        x_data (TYPE, optional): DESCRIPTION. Defaults to None.
+        
+        roi (TYPE, optional): DESCRIPTION. Defaults to None.
+        
+        plot (TYPE, optional): DESCRIPTION. Defaults to False.
+        
+        orders_of_deviation (TYPE, optional): DESCRIPTION. Defaults to 2.
+        
+        verbose (TYPE, optional): DESCRIPTION. Defaults to False.
+
+    Returns:
+        gparams (list): Gaussian.
+        
+        lparams (list): Lorentzian.
+        
+        pVparams (list): pseudo-Voigt.
+        
+        apVparams (list): asymmetric-pseudo-Voigt.
+
+    """
     orders=orders_of_deviation
     if roi is None:
         roi0=0
@@ -491,6 +544,7 @@ def peak_fit(y_data,x_data=None,roi=None,plot=False,orders_of_deviation=2,verbos
     return gparams,lparams,pVparams,apVparams
     
 #%%
+#TODO docstring
 def sequential_peak_fit(y_data,x_data=None,regions_of_interest=[],plot=False,verbose=False):
     if x_data is None:
         x=np.arange(len(y_data))
