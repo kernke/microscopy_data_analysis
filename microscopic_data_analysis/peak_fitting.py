@@ -80,18 +80,21 @@ def get_n_peaks_1d(y, x=None, delta=0, n=5, roi=None):
     to a median value of y, then repeating the process n times
 
     Args:
-        y (array_like): DESCRIPTION.
+        y (array_like): input data.
         
-        x (array_like, optional): DESCRIPTION. 
+        x (array_like, optional): same length as y, in increasing order, 
+        if x is None, it is constructed as indices enumerating y 
         Defaults to None.
         
-        delta (float, optional): DESCRIPTION. 
+        delta (float, optional): radius masking nearby points around a  maximum
+        for the iterative search of further maxima. 
         Defaults to 0.
         
         n (int, optional): number of peaks. 
         Defaults to 5.
         
-        roi (tuple, optional): DESCRIPTION. Defaults to None.
+        roi (tuple, optional): upper and lower threshold of region of interest. 
+        Defaults to None.
 
     Returns:
         n_peaks (array_like): with length n containing the positions of the n peaks.
@@ -138,48 +141,212 @@ def get_n_peaks_1d(y, x=None, delta=0, n=5, roi=None):
 #%%
 
 #https://www.webpages.uidaho.edu/brauns/vibspect1.pdf
-def Asym_Pseudo_Voigt(x_data,x0,A,eta,gamma_0,a):
-    x=x_data-x0
-    gamma=2*gamma_0/(1+np.exp(a*x))
-    gauss= 1/gamma* np.sqrt(4*np.log(2)/np.pi) *np.exp(-4*np.log(2) *(x/gamma)**2)    
-    lorentz=(2/(np.pi*gamma ))/(1+4*(x/gamma)**2)
+def Asym_Pseudo_Voigt(x,x0,A,eta,gamma_0,a):
+    """
+    normalized asymmetric pseudo-Voigt function (area under curve equals one 
+    for amplitude A=1, meaning A can be interpreted as sample size with given 
+    probability density, also implying A can differ from peakheight)
+    
+    
+    definitions following the paper: doi:10.1016/j.vibspec.2008.02.009
+
+    Args:
+        x (float or array_like): input.
+        x0 (float): maximum position.
+        A (float): amplitude.
+        eta (float): ratio of Lorentzian to Gaussian (between 0 and 1).
+        gamma_0 (float): width.
+        a (float): asymmetry.
+
+    Returns:
+        y (like x): output.
+
+    """
+    xcentered=x-x0
+    gamma=2*gamma_0/(1+np.exp(a*xcentered))
+    gauss= 1/gamma* np.sqrt(4*np.log(2)/np.pi) *np.exp(-4*np.log(2) *(xcentered/gamma)**2)    
+    lorentz=(2/(np.pi*gamma ))/(1+4*(xcentered/gamma)**2)
     voigt= ((1-eta)*gauss+eta*lorentz)*A
     return voigt
 
+
 #https://docs.mantidproject.org/v6.1.0/fitting/fitfunctions/PseudoVoigt.html
-#symmetric
-def Pseudo_Voigt(x_data,x0,A,eta,gamma,sigma):
-    x=x_data-x0
-    gauss=np.exp(-x**2 / (2 * sigma ** 2)) / (sigma * np.sqrt(2 * np.pi))
-    lorentz=1/np.pi*0.5*gamma /(0.25*gamma**2+x**2)
+def Pseudo_Voigt(x,x0,A,eta,gamma,sigma):
+    """
+    calculates a normalized pseudo-Voigt profile (area under curve equals one 
+    for amplitude A=1, meaning A can be interpreted as sample size with given 
+    probability density, also implying A can differ from peakheight)
+    
+    pseudo-Voigt is a linear combination of Lorentzian and Gaussian,
+    instead of a convolution in case of the real Voigt-profile
+    
+    definitions here following:    
+    http://dx.doi.org/10.5286/SOFTWARE/MANTID#.#    
+    
+    Args:
+        x (float or array_like): input.
+        
+        x0 (float): maximum position.
+        
+        A (float): amplitude.
+        
+        eta (float): ratio of Lorentzian to Gaussian (between 0 and 1).
+        
+        gamma (float): Lorentzian width (full width half maximum) .
+        
+        sigma (float): Gaussian width (full width half maximum)/2.355 .
+
+    Returns:
+        y (like x): output.
+
+    """
+    xcentered=x-x0
+    gauss=np.exp(-xcentered**2 / (2 * sigma ** 2)) / (sigma * np.sqrt(2 * np.pi))
+    lorentz=1/np.pi*0.5*gamma /(0.25*gamma**2+xcentered**2)
     voigt= ((1-eta)*gauss+eta*lorentz)*A
     return voigt
 
 def Asym_Pseudo_Voigt_peakheight(A,eta,gamma0,a):
+    """
+    transform amplitude A to peakheight using the further necessary function parameters 
+
+    Args:
+        A (float): amplitude.
+        
+        eta (float): ratio of Lorentzian to Gaussian (between 0 and 1).
+        
+        gamma0 (float): width.
+        
+        a (float): asymmetry.
+
+    Returns:
+        peakheight (float).
+
+    """
     return A*( (1-eta)/gamma0* np.sqrt(4*np.log(2)/np.pi) +eta*2/(np.pi*gamma0)) 
 
 def Pseudo_Voigt_peakheight(A,eta,gamma,sigma):
+    """
+    transform amplitude A to peakheight using the further necessary function parameters 
+
+    Args:
+        A (float): amplitude.
+        
+        eta (float): ratio of Lorentzian to Gaussian (between 0 and 1).
+        
+        gamma (float): Lorentzian width.
+
+        sigma (TYPE): Gaussian width.
+
+    Returns:
+        peakheight (float).
+
+    """
     return A*( (1-eta)/(sigma * np.sqrt(2 * np.pi)) +eta*2/(np.pi*gamma)) 
 
-def Gaussian(x_data,x0,A,sigma):
-    x=x_data-x0
-    return A/(sigma * np.sqrt(2 * np.pi))*np.exp(- 0.5*(x/sigma)**2)
+def Gaussian(x,x0,A,sigma):
+    """
+    normalized Gaussian curve (area under curve equals one for amplitude A=1, 
+    meaning A can be interpreted as sample size with given probability density,
+    also implying A can differ from peakheight)
 
-def Gaussian_A(A,sigma):
-    return A*(sigma * np.sqrt(2 * np.pi)) 
+    Args:
+        x (float or array_like): input value.
+        
+        x0 (float): maximum position.
+        
+        A (float): amplitude.
+        
+        sigma (float): width.
+
+    Returns:
+        y (like x): output value.
+
+    """
+    xcentered=x-x0
+    return A/(sigma * np.sqrt(2 * np.pi))*np.exp(- 0.5*(xcentered/sigma)**2)
+
+def Gaussian_A(peakheight,sigma):
+    """
+    calculate amplitude A from peakheight and width
+
+    Args:
+        peakheight (float): positive value.
+        
+        sigma (float): width.
+
+    Returns:
+        amplitude (float) .
+
+    """
+    return peakheight*(sigma * np.sqrt(2 * np.pi)) 
     
-def Lorentzian_A(A,gamma):
-    return A*np.pi*gamma/2
+def Lorentzian_A(peakheight,gamma):
+    """
+    calculate amplitude A from peakheight and width
+
+    Args:
+        peakheight (float): positive value.
+        
+        gamma (float): width.
+
+    Returns:
+        amplitude (float) .
+
+    """
+    return peakheight*np.pi*gamma/2
 
 def Gaussian_peakheight(A,sigma):
+    """
+    calculate peakheight from amplitude and width
+
+    Args:
+        A (float): amplitude.
+        
+        sigma (float): width.
+
+    Returns:
+        peakheight (float).
+
+    """
     return A/(sigma * np.sqrt(2 * np.pi)) 
     
 def Lorentzian_peakheight(A,gamma):
+    """
+    calculate peakheight from amplitude and width
+
+    Args:
+        A (float): amplitude.
+        
+        gamma (float): width.
+
+    Returns:
+        peakheight (float).
+
+    """
     return A/(np.pi*gamma/2)
 
-def Lorentzian(x_data,x0,A,gamma):
-    x=x_data-x0
-    return A*gamma /(2*np.pi*(0.25*gamma**2+x**2))
+def Lorentzian(x,x0,A,gamma):
+    """
+    normalized Lorentzian curve (area under curve equals one for amplitude A=1, 
+    meaning A can be interpreted as sample size with given probability density,
+    also implying A can differ from peakheight)
+
+    Args:
+        x (float or array_like): input value.
+        
+        x0 (float): maximum position.
+        
+        A (float): amplitude.
+        
+        gamma (float): width.
+
+    Returns:
+        y (like x): output value.
+
+    """
+    xcentered=x-x0
+    return A*gamma /(2*np.pi*(0.25*gamma**2+xcentered**2))
 
 #%%
 def calculate_FWHM(x_data,y_data,superres=2):
@@ -370,7 +537,18 @@ def sequential_peak_fit(y_data,x_data=None,regions_of_interest=[],plot=False,ver
 
 def snip_pure(y_data,m):
     """
-    optimal m should be half the width of features (w=2m+1)  
+    statistics-sensitive non-linear iterative peak-clipping
+    (without smoothing, vulnerable to noise)
+    following the paper: doi:10.1016/j.nima.2008.11.132
+
+    Args:
+        y_data (array_like): uniformly spaced points recommended.
+        
+        m (int): optimal m should be half the width w of features (w=2m+1).
+
+    Returns:
+        background_curve (array_like): signal without peaks.
+
     """
     y=np.log(np.log(np.sqrt(y_data+1)+1)+1)
     n=len(y)
@@ -384,14 +562,25 @@ def snip_pure(y_data,m):
     return (np.exp(np.exp(y)-1)-1)**2-1
 
 # with smoothing
-# TODO: allow w>1 after taking care of boundaries
+# TODO: allow sw>1 after taking care of boundaries
 def snip(y_data,m):
     """
-    optimal m should be half the width of features (w=2m+1)  
+    statistics-sensitive non-linear iterative peak-clipping
+    (with smoothing width = 1, more robust to noise)
+    following the paper: doi:10.1016/j.nima.2008.11.132
+
+    Args:
+        y_data (array_like): uniformly spaced points recommended.
+        
+        m (int): optimal m should be half the width w of features (w=2m+1).
+
+    Returns:
+        background_curve (array_like): signal without peaks.
+
     """
     y=np.log(np.log(np.sqrt(y_data+1)+1)+1)
     n=len(y)
-    w=1
+    sw=1
     z=np.zeros(n)
     for p in range(m,0,-1):
         for i in range(p, n - p):
@@ -399,7 +588,7 @@ def snip(y_data,m):
             if b<y[i]:
                 z[i]=b
             else:
-                z[i]=1/(2*w+1) *np.sum(y[i-w:i+w+1])
+                z[i]=1/(2*sw+1) *np.sum(y[i-sw:i+sw+1])
         y[p:n-p]=z[p:n-p]
     return (np.exp(np.exp(y)-1)-1)**2-1
 #%%
