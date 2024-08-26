@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@author: kernke
+submodule covering some 1D, 2D, mixed and other functions
 """
 
 import numpy as np
@@ -15,13 +15,6 @@ import matplotlib.pyplot as plt
 
 from .image_processing import img_make_square
 import os
-import h5py
-import ast
-import datetime
-
-import ncempy.io as nio
-from contextlib import redirect_stdout
-import io
 
 #%%
 def bin_centering(x_bins,additional_boundary_bin_threshold=None):
@@ -260,116 +253,6 @@ def stitch_1d_overlap(x1,y1,x2,y2,scale_adjustment=True,newbins=False,verbose=Fa
     
 #%%
 
-def get_emd_with_metadata(filepath):
-    """
-    Read TEM-imgages as .emd-files 
-
-    Args:
-        filepath (string): relative or absolute path to the file.
-
-    Returns:
-        image (MxN array_like): 2D image with only one intensity-channel (gray-scale).
-        
-        metadata (dict): Dictionary containing the most important metadata.
-    """
-    image_with_metadata=h5py.File(filepath)
-    metadata=dict()
-    kw=list(image_with_metadata["Data/Image"].keys())[0]
-    image=image_with_metadata["Data/Image/"+kw+"/Data"][:]
-
-    ascii_char=""
-    for num in image_with_metadata["Data/Image/"+kw+"/Metadata"][:,0]:
-        ascii_char += chr(num)
-        
-    allmetadata=ast.literal_eval(ascii_char[:ascii_char.find("\n")])
-    #print(allmetadata)
-    
-    unixtimestamp=allmetadata["Acquisition"]["AcquisitionStartDatetime"]["DateTime"]
-    metadata["unix_timestamp"]=int(unixtimestamp)
-    uts=datetime.datetime.fromtimestamp(int(unixtimestamp))
-    metadata["datetime"]=uts.strftime('%Y.%m.%d, %H:%M:%S')
-
-    metadata["beam_mode"]=allmetadata["Optics"]["IlluminationMode"]
-    metadata["detector_name"]=allmetadata["BinaryResult"]["Detector"]
-
-
-    pix_to_nm=np.double(allmetadata["BinaryResult"]["PixelSize"]["width"])*10**9
-    metadata["pixelsize_nm"]=pix_to_nm
-    
-    metadata["camera_length_mm"]=np.double(allmetadata["Optics"]["CameraLength"])*1000
-    metadata["frame_time_sec"]=np.double(allmetadata["Scan"]["FrameTime"])
-    if metadata["detector_name"]=="HAADF":    
-        metadata["dwell_time_microsec"]=np.double(allmetadata["Scan"]["DwellTime"])*10**6
-    else:
-        metadata["exposure_time_sec"]=np.double(allmetadata["Detectors"]["Detector-0"]["ExposureTime"])
-    
-    metadata["x_mm"]=np.double(allmetadata["Stage"]["Position"]["x"])*1000
-    metadata["y_mm"]=np.double(allmetadata["Stage"]["Position"]["y"])*1000
-    metadata["z_mm"]=np.double(allmetadata["Stage"]["Position"]["z"])*1000
-    
-    # it seems weird, that scan rotation is only saved with this detector
-    if metadata["detector_name"]=="HAADF":
-        metadata["scan_rotation_rad"]=np.double(allmetadata["Scan"]["ScanRotation"])
-    
-    #assuming quadratic camera chip
-    size=pix_to_nm*image.shape[0]
-    metadata["field_of_view_microns"]=size/1000
-    metadata["image_shape"]=image.shape[:2]
-
-    metadata["acceleration_volt"]=np.double(allmetadata["Optics"]["AccelerationVoltage"])
-
-    if metadata["beam_mode"] != "Parallel":
-        metadata["beam_convergence_mrad"]=np.double(allmetadata["Optics"]["BeamConvergence"])*1000
-        
-        metadata["collection_angle_start_mrad"]=np.double(
-            allmetadata["Detectors"]["Detector-1"]["CollectionAngleRange"]["begin"])*1000
-        metadata["collection_angle_end_mrad"]=np.double(
-            allmetadata["Detectors"]["Detector-1"]["CollectionAngleRange"]["end"])*1000
-    
-    image=image[:,:,0]
-    return image,metadata
-
-
-#%% get_dm4_with_metadata
-def get_dm4_with_metadata(filepath):
-    """
-    read a dm4-file and return the variables data and metadata as dictionaries
-    data includes everything immediately important
-    metadata contains all other information
-    
-    Important missing parameters are electric current and  only for spectra:
-    acquisition time and acquisition date are missing
-
-    Args:
-        filepath (string): relative or absolute path to the file.
-
-    Returns:
-        data (dict): data["data"] yields the data other keywords contain the most important metadata.
-        
-        metadata (dict): Dictionary containing further metadata.
-    """
-
-    relevant_metadata_list=["Grating","Objective focus (um)","Stage X","Stage Y","Stage Z","Stage Beta","Stage Alpha","Indicated Magnification",
-    "Bandpass","Detector","Filter","PMT HV","Sensitivity","Slit Width","Sample Time","Dwell time (s)","Image Height","Image Width",
-     "Number Summing Frames","Voltage","Lightpath","Signal Name","Acquisition Time","Acquisition Date"]    
-    
-    f = io.StringIO()
-    with redirect_stdout(f):
-        data=nio.dm.dmReader(filepath,verbose=True)
-    all_metadata = f.getvalue()
-    
-    metadata=dict()
-
-    for i in range(len(relevant_metadata_list)):
-        start=all_metadata.find("curTagValue = "+relevant_metadata_list[i])
-        end=all_metadata[start:].find("\n")
-        if start != -1:
-            end+=start
-            start+=len("curTagValue = "+relevant_metadata_list[i])+2
-        metadata[relevant_metadata_list[i]]=all_metadata[start:end]
-
-    return data,metadata   
-
 
 #%% get_files_of_format
 def get_files_of_format(path,ending):
@@ -462,8 +345,8 @@ def assure_multiple(*x):
     its iterable container.
 
     Args:
-        *x (TYPE): DESCRIPTION.
-
+        \*x (TYPE): DESCRIPTION.
+        
     Returns:
         TYPE: DESCRIPTION.
 
@@ -783,7 +666,7 @@ def make_circular_mask(x0, y0, r, image):
 
 
 #%% pascal triangle
-def pascal_numbers(n):
+def _pascal_numbers(n):
     """Returns the n-th row of Pascal's triangle"""
     return scipy.special.comb(n, np.arange(n + 1))
 
@@ -795,8 +678,8 @@ def smoothbox_kernel(kernel_size):
     c = kernel_size[1]
     sb = np.zeros([r, c])
 
-    row = pascal_numbers(r - 1)
-    col = pascal_numbers(c - 1)
+    row = _pascal_numbers(r - 1)
+    col = _pascal_numbers(c - 1)
 
     row /= np.sum(row)
     col /= np.sum(col)

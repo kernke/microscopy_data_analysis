@@ -4,6 +4,15 @@ microscopic\_data\_analysis package
 Submodules
 ----------
 
+microscopic\_data\_analysis.data\_formats\_io module
+----------------------------------------------------
+
+.. automodule:: microscopic_data_analysis.data_formats_io
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 microscopic\_data\_analysis.general\_util module
 ------------------------------------------------
 
