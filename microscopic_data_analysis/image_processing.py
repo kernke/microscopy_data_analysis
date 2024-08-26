@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-@author: kernke
-
-image in image out
-
+submodule focussed completely on images, all functions with prefix "img" 
+take an image as main input and return a processed image
 """
 import cv2
 import numpy as np
@@ -54,6 +52,7 @@ def img_morphLaplace(image, kernel):
 
     Args:
         image (MxN array_like): np.uint8.
+        
         kernel (TYPE): DESCRIPTION.
 
     Returns:
@@ -195,20 +194,22 @@ def img_to_half_int16(img):
 #%% noise_line_suppression
 
 
-def img_noise_line_suppression(image, ksize_erodil):
+def img_noise_line_suppression(image, ksize):
     """
-    sdofijsod
+    morphological opening with a horizontal line as structuring element
+    (first erode, than dilate ; only horizotal lines with length ksize remain)
 
     Args:
-        image (TYPE): DESCRIPTION.
-        ksize_erodil (TYPE): DESCRIPTION.
+        image (array_like): input.
+        
+        ksize (int): uneven integer.
 
     Returns:
-        TYPE: DESCRIPTION.
+        processed_image (array_like): output.
 
     """
-    erod_img = cv2.erode(image, np.ones([1, ksize_erodil]))
-    return cv2.dilate(erod_img, np.ones([1, ksize_erodil]))
+    erod_img = cv2.erode(image, np.ones([1, ksize]))
+    return cv2.dilate(erod_img, np.ones([1, ksize]))
 
 #%% rebin
 def img_rebin_by_mean(image, new_shape):
@@ -309,8 +310,8 @@ def img_rotate_bound(image, angle, flag="cubic", bm=1):
         rotated_image (KxL array_like): np.uint8.
         
         log (list): looking like [M,N,inverse_rotation_matrix],
-            contains the original shape M,N and the matrix needed 
-            to invert the rotation for the function img_rotate_back.
+        contains the original shape M,N and the matrix needed 
+        to invert the rotation for the function img_rotate_back.
 
     """
 
@@ -505,15 +506,24 @@ def img_anms(img, mask, thresh_ratio=1.5, ksize=5, asympix=0, damping=5):
     asymmetric non maximum supppression
 
     Args:
-        img (TYPE): DESCRIPTION.
+        img (array_like): DESCRIPTION.
+        
         mask (TYPE): DESCRIPTION.
-        thresh_ratio (TYPE, optional): DESCRIPTION. Defaults to 1.5.
-        ksize (TYPE, optional): DESCRIPTION. Defaults to 5.
-        asympix (TYPE, optional): DESCRIPTION. Defaults to 0.
-        damping (TYPE, optional): DESCRIPTION. Defaults to 5.
+        
+        thresh_ratio (float, optional): DESCRIPTION. 
+        Defaults to 1.5.
+        
+        ksize (int, optional): uneven integer. 
+        Defaults to 5.
+        
+        asympix (TYPE, optional): DESCRIPTION. 
+        Defaults to 0.
+        
+        damping (TYPE, optional): DESCRIPTION. 
+        Defaults to 5.
 
     Returns:
-        TYPE: DESCRIPTION.
+        processed_image (array_like): DESCRIPTION.
 
     """
     newimg = copy.deepcopy(img)

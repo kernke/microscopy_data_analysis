@@ -718,10 +718,10 @@ def contrast_correction(images):
     at the same position
 
     Args:
-        images (list of images): DESCRIPTION.
+        images (list of images): input.
 
     Returns:
-        images_corrected (list of images): DESCRIPTION.
+        images_corrected (list of images): output.
 
     """
     # 

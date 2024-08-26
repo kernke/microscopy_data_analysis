@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@author: kernke
+submodule focussed completely on 1D-data
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -160,10 +160,15 @@ def Asym_Pseudo_Voigt(x,x0,A,eta,gamma_0,a):
 
     Args:
         x (float or array_like): input.
+        
         x0 (float): maximum position.
+        
         A (float): amplitude.
+        
         eta (float): ratio of Lorentzian to Gaussian (between 0 and 1).
+        
         gamma_0 (float): width.
+        
         a (float): asymmetry.
 
     Returns:

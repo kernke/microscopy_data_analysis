@@ -68,10 +68,11 @@ microscopic\_data\_analysis.visualisation module
    :undoc-members:
    :show-inheritance:
 
-Module contents
----------------
-
-.. automodule:: microscopic_data_analysis
-   :members:
-   :undoc-members:
-   :show-inheritance:
+..
+  Module contents
+  ---------------
+  
+  .. automodule:: microscopic_data_analysis
+     :members:
+     :undoc-members:
+     :show-inheritance:
