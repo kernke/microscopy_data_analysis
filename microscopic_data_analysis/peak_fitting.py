@@ -425,26 +425,34 @@ def peak_fit(y_data,x_data=None,roi=None,plot=False,orders_of_deviation=2,verbos
     
 
     Args:
-        y_data (TYPE): DESCRIPTION.
+        y_data (array_like): DESCRIPTION.
         
-        x_data (TYPE, optional): DESCRIPTION. Defaults to None.
+        x_data (array_like, optional): if x_data is None, it is constructed as the 
+        indices enumerating y_data. 
+        Defaults to None.
         
-        roi (TYPE, optional): DESCRIPTION. Defaults to None.
+        roi (tuple, optional): lower and upper threshold limiting the maximum position of the peak. 
+        Defaults to None.
         
-        plot (TYPE, optional): DESCRIPTION. Defaults to False.
+        plot (bool, optional): show the input data and the 4 fit-routines compare to each other  
+        Defaults to False.
         
-        orders_of_deviation (TYPE, optional): DESCRIPTION. Defaults to 2.
+        orders_of_deviation (int, optional): abbrevated as ood.
+        For robustness, the optimization range Delta is limited by thresholds 
+        relative to an estimate p like this: p*10^(-ood) < Delta < p*10^(ood)
+        Defaults to 2.
         
-        verbose (TYPE, optional): DESCRIPTION. Defaults to False.
+        verbose (bool, optional): print estimated values for parameters before optmization. 
+        Defaults to False.
 
     Returns:
-        gparams (list): Gaussian.
+        gparams (list): Gaussian fit-parameters.
         
-        lparams (list): Lorentzian.
+        lparams (list): Lorentzian fit-parameters.
         
-        pVparams (list): pseudo-Voigt.
+        pVparams (list): pseudo-Voigt fit-parameters.
         
-        apVparams (list): asymmetric-pseudo-Voigt.
+        apVparams (list): asymmetric-pseudo-Voigt fit-parameters.
 
     """
     orders=orders_of_deviation
@@ -544,8 +552,36 @@ def peak_fit(y_data,x_data=None,roi=None,plot=False,orders_of_deviation=2,verbos
     return gparams,lparams,pVparams,apVparams
     
 #%%
-#TODO docstring
+#TODO output for other functions, not only asym pseudo Voigt
 def sequential_peak_fit(y_data,x_data=None,regions_of_interest=[],plot=False,verbose=False):
+    """
+    fit multiple peaks succesively in descending order with respect to their peakheight. 
+    the number of peaks is given by the number of tuples for regions_of_interest
+
+    Args:
+        y_data (array_like): input data.
+        
+        x_data (array_like, optional): if x_data is None, it is constructed as the 
+        indices enumerating y_data. 
+        Defaults to None.
+        
+        regions_of_interest (list of tuples, optional): with each tuple containing 
+        the lower and upper threshold limiting the maximum position of one peak.
+        if no region is specified, the global maximum is fitted
+        Defaults to [].
+        
+        plot (bool, optional): create one plot per peak, showing each single fit. 
+        Defaults to False.
+        
+        verbose (bool, optional): print out information about each single fit. 
+        Defaults to False.
+
+    Returns:
+        params (list of lists): with one list with the fit-parameters for each peak.
+        
+        newy (array_like): fitting curve, to compare to input y_data.
+
+    """
     if x_data is None:
         x=np.arange(len(y_data))
         rois=regions_of_interest
@@ -647,6 +683,33 @@ def snip(y_data,m):
     return (np.exp(np.exp(y)-1)-1)**2-1
 #%%
 def multi_ident_func_fit(func,p0_lists,x,y,single_upper_bounds=None,single_lower_bounds=None):
+    """
+    simultaneous fit of multiple peaks/features with identical fitfunctions
+
+    Args:
+        func (function): single fit function.
+        
+        p0_lists (list of lists): every list containing the single fit estimates.
+        As given for example  by the function sequential_peak_fit
+        
+        x (array_like): input data.
+        
+        y (array_like): input data.
+        
+        single_upper_bounds (list or array_like, optional): boundaries for fit-parameters 
+        applied for all peaks/features. If not given +inf is used for all parameters.
+        Defaults to None.
+        
+        single_lower_bounds (list or array_like, optional): boundaries for fit-parameters 
+        applied for all peaks/features. If not given -inf is used for all parameters.
+        Defaults to None.
+
+    Returns:
+        fit_parameter_lists (list of lists): with one list with the fit-parameters for each peak/feature.
+        
+        fit_curve_y (array_like): fitting curve, to compare to input y.
+
+    """
 
     n=len(p0_lists)
     subn=len(p0_lists[0])
@@ -654,18 +717,17 @@ def multi_ident_func_fit(func,p0_lists,x,y,single_upper_bounds=None,single_lower
     if single_upper_bounds is None:
         single_upper_bounds=[np.inf for i in range(subn)]
         single_lower_bounds=[-np.inf for i in range(subn)]
-    
-    ub=[]
-    for i in single_upper_bounds:
-        ub.append(i)
-    lb=[]
-    for i in single_lower_bounds:
-        lb.append(i)
+    else:
+        if not isinstance(single_upper_bounds,list):
+            single_upper_bounds=single_upper_bounds.tolist()
+        if not isinstance(single_lower_bounds,list):
+            single_lower_bounds=single_lower_bounds.tolist()
+            
     ubs=[]
     lbs=[]
     for i in range(n):
-        ubs+=ub
-        lbs+=lb
+        ubs+=single_upper_bounds
+        lbs+=single_lower_bounds
     bounds=(lbs,ubs)
 
     flat_p0=[]
@@ -677,8 +739,9 @@ def multi_ident_func_fit(func,p0_lists,x,y,single_upper_bounds=None,single_lower
 
     pars,cov=curve_fit(peak_func,x,y,p0=flat_p0,bounds=bounds)
 
-    res=[]
+    fit_parameter_lists=[]
     for i in range(n):
-        res.append(pars[i*subn:(i+1)*subn])
+        fit_parameter_lists.append(pars[i*subn:(i+1)*subn])
+    fit_curve_y=peak_func(x,*pars)
     
-    return res,peak_func(x,*pars)
+    return fit_parameter_lists,fit_curve_y
