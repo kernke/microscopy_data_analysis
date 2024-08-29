@@ -22,12 +22,15 @@ def get_emd_with_metadata(filepath):
     Read TEM-imgages as .emd-files 
 
     Args:
-        filepath (string): relative or absolute path to the file.
+        filepath (string): 
+            relative or absolute path to the file.
 
     Returns:
-        image (MxN array_like): 2D image with only one intensity-channel (gray-scale).
+        image (MxN array_like): 
+            2D image with only one intensity-channel (gray-scale).
         
-        metadata (dict): Dictionary containing the most important metadata.
+        metadata (dict): 
+            Dictionary containing the most important metadata.
     """
     image_with_metadata=h5py.File(filepath)
     metadata=dict()
@@ -98,12 +101,15 @@ def get_dm4_with_metadata(filepath):
     acquisition time and acquisition date are missing
 
     Args:
-        filepath (string): relative or absolute path to the file.
+        filepath (string): 
+            relative or absolute path to the file.
 
     Returns:
-        data (dict): data["data"] yields the data other keywords contain the most important metadata.
+        data (dict): 
+            data["data"] yields the data other keywords contain the most important metadata.
         
-        metadata (dict): Dictionary containing further metadata.
+        metadata (dict): 
+            Dictionary containing further metadata.
     """
 
     relevant_metadata_list=["Grating","Objective focus (um)","Stage X","Stage Y","Stage Z","Stage Beta","Stage Alpha","Indicated Magnification",

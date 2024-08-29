@@ -14,6 +14,7 @@ from scipy.sparse import csr_matrix
 import cv2
 
 
+#%% sparse matrices
 #https://stackoverflow.com/questions/33281957/faster-alternative-to-numpy-where
 def compute_M(data):
     cols = np.arange(data.size)
@@ -42,7 +43,7 @@ def get_connected_points(srb,minimal_points=5):
     return conpoi,conlen
 
 
-    #%%
+#%% make_line_overview
 def make_line_overview(conpois,img):
     """
     create an image where 

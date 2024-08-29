@@ -12,7 +12,7 @@ import numpy as np
 import cv2
 import time
 
-#%%
+#%% h5_sortout_0frames_in_raw
 def h5_sortout_0frames_in_raw(rawh5):
     with h5py.File(rawh5,'r+') as h5:
         keylist=list(h5.keys())

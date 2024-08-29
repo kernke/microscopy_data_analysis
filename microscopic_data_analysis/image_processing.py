@@ -9,41 +9,6 @@ from skimage import  exposure
 import copy
 from numba import njit
 
-# internal use functions
-#%% _aysmmetric_non_maximum_suppression
-@njit
-def _aysmmetric_non_maximum_suppression(
-    newimg, img, cimg, rimg, mask, thresh_ratio, ksize, asympix, damping
-):
-    ioffs = ksize // 2
-    joffs = ksize // 2 + asympix // 2
-
-    for i in range(ioffs, img.shape[0] - ioffs):
-        for j in range(joffs, img.shape[1] - joffs):
-            if not mask[i, j]:
-                pass
-            elif (
-                not mask[i - ioffs, j - joffs]
-                or not mask[i + ioffs, j + joffs]
-                or not mask[i - ioffs, j + joffs]
-                or not mask[i + ioffs, j - joffs]
-            ):
-                pass
-            else:
-                v = max(cimg[i, j - joffs : j + joffs + 1])
-                h = max(rimg[i - ioffs : i + ioffs + 1, j]) * ksize / (ksize + asympix)
-
-                if h > v * thresh_ratio:
-                    newimg[i, j] = img[i, j]
-                else:
-                    newimg[i, j] = (
-                        img[i, j] / damping
-                    )  # np.min(img[i-ioffs:i+ioffs+1,j-joffs:j+joffs+1])
-    return newimg
-
-
-
-#external use
 
 #%% morphLaplace
 def img_morphLaplace(image, kernel):
@@ -51,12 +16,15 @@ def img_morphLaplace(image, kernel):
     morphological Laplace Filter
 
     Args:
-        image (MxN array_like): np.uint8.
+        image (MxN array_like): 
+            np.uint8.
         
-        kernel (TYPE): DESCRIPTION.
+        kernel (TYPE): 
+            DESCRIPTION.
 
     Returns:
-        filtered_image (MxN array_like): np.uint8.
+        filtered_image (MxN array_like): 
+            np.uint8.
 
     """
     return cv2.erode(image, kernel) + cv2.dilate(image, kernel) - 2 * image - 128
@@ -69,13 +37,15 @@ def img_gammaCorrection(img, gamma):
     (gamma=1 means no change)
 
     Args:
-        img (MxN array_like): np.uint8.
+        img (MxN array_like): 
+            np.uint8.
         
-        gamma (float): gamma value between 0 and ~10.
+        gamma (float): 
+            gamma value between 0 and ~10.
 
     Returns:
-        gamma_transformed_image (MxN array_like): np.uint8.
-
+        gamma_transformed_image (MxN array_like): 
+            np.uint8.
     """
     invGamma = 1 / gamma
 
@@ -83,20 +53,24 @@ def img_gammaCorrection(img, gamma):
     table = np.array(table, np.uint8)
 
     return cv2.LUT(img, table)
-#%%
+
+#%% format image dtypes
 def img_to_uint8(img,imgmax=255):
     """
     transform contrast range to unsigned integer 8bit
 
     Args:
-        img (MxN array_like): input image.
+        img (MxN array_like): 
+            input image.
         
-        imgmax (int, optional): optionally reduce contrast range, 
-        by setting a lower, than datatype given, threshold to the maximum value. 
-        Defaults to 255.
+        imgmax (int, optional): 
+            optionally reduce contrast range, 
+            by setting a lower, than datatype given, threshold to the maximum value. 
+            Defaults to 255.
 
     Returns:
-        datatype_conform_image (MxN array_like): np.uint8.
+        datatype_conform_image (MxN array_like): 
+            np.uint8.
 
     """
     img -= np.min(img)
@@ -107,14 +81,17 @@ def img_to_uint16(img,imgmax=65535):
     transform contrast range to unsigned integer 16bit
 
     Args:
-        img (MxN array_like): input image.
+        img (MxN array_like): 
+            input image.
         
-        imgmax (int, optional): optionally reduce contrast range, 
-        by setting a lower, than datatype given, threshold to the maximum value. 
-        Defaults to 65535.
+        imgmax (int, optional): 
+            optionally reduce contrast range, 
+            by setting a lower, than datatype given, threshold to the maximum value. 
+            Defaults to 65535.
 
     Returns:
-        datatype_conform_image (MxN array_like): np.uint16.
+        datatype_conform_image (MxN array_like): 
+            np.uint16.
 
     """
     img -= np.min(img)
@@ -125,14 +102,17 @@ def img_to_int8(img,imgmax=127):
     transform contrast range to signed integer 8bit
 
     Args:
-        img (MxN array_like): input image.
+        img (MxN array_like): 
+            input image.
         
-        imgmax (int, optional): optionally reduce contrast range, 
-        by setting a lower, than datatype given, threshold to the maximum value. 
-        Defaults to 127.
+        imgmax (int, optional): 
+            optionally reduce contrast range, 
+            by setting a lower, than datatype given, threshold to the maximum value. 
+            Defaults to 127.
 
     Returns:
-        datatype_conform_image (MxN array_like): np.int8.
+        datatype_conform_image (MxN array_like): 
+            np.int8.
 
     """
     imgmax+=128
@@ -144,14 +124,17 @@ def img_to_int16(img,imgmax=32767):
     transform contrast range to signed integer 16bit
 
     Args:
-        img (MxN array_like): input image.
+        img (MxN array_like): 
+            input image.
         
-        imgmax (int, optional): optionally reduce contrast range, 
-        by setting a lower, than datatype given, threshold to the maximum value. 
-        Defaults to 32767.
+        imgmax (int, optional): 
+            optionally reduce contrast range, 
+            by setting a lower, than datatype given, threshold to the maximum value. 
+            Defaults to 32767.
 
     Returns:
-        datatype_conform_image (MxN array_like): np.int16.
+        datatype_conform_image (MxN array_like): 
+            np.int16.
 
     """
     imgmax+=32768
@@ -165,10 +148,12 @@ def img_to_half_int8(img):
     so values are between -64 and 63 for possible range -128 to 127
 
     Args:
-        img (MxN array_like): input image.
+        img (MxN array_like): 
+            input image.
 
     Returns:
-        datatype_conform_image (MxN array_like): np.int8.
+        datatype_conform_image (MxN array_like): 
+            np.int8.
 
     """
     img -= np.min(img)
@@ -181,10 +166,12 @@ def img_to_half_int16(img):
     so values are between -16384 and 16383 for possible range -32768 to 32767
 
     Args:
-        img (MxN array_like): input image.
+        img (MxN array_like): 
+            input image.
 
     Returns:
-        datatype_conform_image (MxN array_like): np.int16.
+        datatype_conform_image (MxN array_like): 
+            np.int16.
 
     """
     img -= np.min(img)
@@ -200,12 +187,15 @@ def img_noise_line_suppression(image, ksize):
     (first erode, than dilate ; only horizotal lines with length ksize remain)
 
     Args:
-        image (array_like): input.
+        image (array_like): 
+            input.
         
-        ksize (int): uneven integer.
+        ksize (int): 
+            uneven integer.
 
     Returns:
-        processed_image (array_like): output.
+        processed_image (array_like): 
+            output.
 
     """
     erod_img = cv2.erode(image, np.ones([1, ksize]))
@@ -218,11 +208,14 @@ def img_rebin_by_mean(image, new_shape):
     whereby M and N must be multiples of m and n
     
     Args:
-        image (MxN array_like): image.
-        new_shape (tuple): containing two integers with the new shape.
+        image (MxN array_like): 
+            image.
+        new_shape (tuple): 
+            containing two integers with the new shape.
 
     Returns:
-        rebinned_image (mxn array_like): smaller image.
+        rebinned_image (mxn array_like): 
+            smaller image.
 
     """
     if image.shape[0]%new_shape[0] !=0 or image.shape[1]%new_shape[1]:
@@ -248,13 +241,16 @@ def img_make_square(image, startindex=None):
     to the lower right corner at startindex=abs(M-N)   
 
     Args:
-        image (MxN array_like): DESCRIPTION.
+        image (MxN array_like): 
+            DESCRIPTION.
         
-        startindex (int, optional): must be within 0 <= startindex <= abs(M-N). 
-        Defaults to None.
+        startindex (int, optional): 
+            must be within 0 <= startindex <= abs(M-N). 
+            Defaults to None.
 
     Returns:
-        square_image (TYPE): either MxM or NxN array.
+        square_image (array_like): 
+            either MxM or NxN array.
 
     """
 
@@ -281,7 +277,7 @@ def img_make_square(image, startindex=None):
     return square_image
 
 
-#%% rotate
+#%% image rotation
 
 # this function is a modified version of the original from
 # https://github.com/PyImageSearch/imutils/blob/master/imutils/convenience.py#L41
@@ -292,26 +288,32 @@ def img_rotate_bound(image, angle, flag="cubic", bm=1):
     without cutting off parts of the original image.
     
     Args:
-        image (MxN array_like): np.uint8.
+        image (MxN array_like): 
+            np.uint8.
         
-        angle (float): angle given in degrees.
+        angle (float): 
+            angle given in degrees.
         
-        flag (string, optional): possibilities:"cubic","linear";
-        sets the method of interplation. 
-        Defaults to "cubic".
+        flag (string, optional): 
+            possibilities:"cubic","linear";
+            sets the method of interplation. 
+            Defaults to "cubic".
         
-        bm (int, optional): sets the border mode, 
-        extrapolating from the borders of the image.
-        0: continues the image by padding zeros
-        1: continues the image by repeating the border-pixel values. 
-        Defaults to 1.
+        bm (int, optional): 
+            sets the border mode, 
+            extrapolating from the borders of the image.
+            0: continues the image by padding zeros
+            1: continues the image by repeating the border-pixel values. 
+            Defaults to 1.
 
     Returns:
-        rotated_image (KxL array_like): np.uint8.
+        rotated_image (KxL array_like): 
+            np.uint8.
         
-        log (list): looking like [M,N,inverse_rotation_matrix],
-        contains the original shape M,N and the matrix needed 
-        to invert the rotation for the function img_rotate_back.
+        log (list): 
+            looking like [M,N,inverse_rotation_matrix],
+            contains the original shape M,N and the matrix needed 
+            to invert the rotation for the function img_rotate_back.
 
     """
 
@@ -354,7 +356,6 @@ def img_rotate_bound(image, angle, flag="cubic", bm=1):
         )
 
 
-#%% rotate back
 def img_rotate_back(image, log, flag="cubic", bm=1):
     """
     invert the rotation done by img_rotate_bound returning the image
@@ -362,26 +363,32 @@ def img_rotate_back(image, log, flag="cubic", bm=1):
     bounding box generated by img_rotate_bound
 
     Args:
-        image (KxL array_like), np.uint8.
+        image (KxL array_like):
+            np.uint8.
         
-        log (list): [M,N,inverse_rotation_matrix],
-        contains the original shape M,N and the matrix needed 
-        to invert the rotation. log is given by the function img_rotate_bound.
+        log (list): 
+            [M,N,inverse_rotation_matrix],
+            contains the original shape M,N and the matrix needed 
+            to invert the rotation. log is given by the function img_rotate_bound.
         
-        flag (string, optional): possibilities:"cubic","linear";
-        sets the method of interplation. 
-        Defaults to "cubic".
+        flag (string, optional): 
+            possibilities:"cubic","linear";
+            sets the method of interplation. 
+            Defaults to "cubic".
         
-        bm (int, optional): possibilities: 0,1;
-        sets the border mode, extrapolating from the borders of the image.
-        0: continues the image by padding zeros
-        1: continues the image by repeating the border-pixel values. 
-        (bm=1 allows more exact back transformation, avoiding the 
-        decrease of border-pixel values due to interpolation with zeros.)
-        Defaults to 1.
+        bm (int, optional): 
+            possibilities: 0,1;
+            sets the border mode, extrapolating from the borders of the image.
+            0: continues the image by padding zeros
+            1: continues the image by repeating the border-pixel values. 
+            (bm=1 allows more exact back transformation, avoiding the 
+            decrease of border-pixel values due to interpolation with zeros.)
+            Defaults to 1.
 
     Returns:
-        inverse_rotated_image (MxN array_like): np.uint8.
+        inverse_rotated_image (MxN array_like): 
+            np.uint8.
+            
     """
 
     (h, w), invM = log
@@ -409,17 +416,21 @@ def img_periodic_tiling(img, tiles=3):
     tiles x tiles by duplicating it. 
     
     Args:
-        img (MxN array_like): 2d-dataset / image.
+        img (MxN array_like): 
+            2d-dataset / image.
         
-        tiles (int, optional): number of tiles in vertical and horizontal direction. 
-        the number of tiles must be uneven.
-        Defaults to 3.
+        tiles (int, optional): 
+            number of tiles in vertical and horizontal direction. 
+            the number of tiles must be uneven.
+            Defaults to 3.
 
     Returns:
-        tiled (array_like): with shape tiles*M x tiles*N.
+        tiled (array_like): 
+            with shape tiles*M x tiles*N.
         
-        orig (tuples): containing the bounding coordinates of the center image
-        (lower_row_limit,upper_row_limit),(lower_column_limit,upper_column_limit).
+        orig (tuples): 
+            containing the bounding coordinates of the center image
+            (lower_row_limit,upper_row_limit),(lower_column_limit,upper_column_limit).
 
     """
     s = np.array(img.shape)
@@ -433,7 +444,7 @@ def img_periodic_tiling(img, tiles=3):
     return tiled, orig
 
 
-#%%
+#%% special image transformations
 
 def img_transform(image, imshape, rfftmask, rebin=True):
     """
@@ -442,13 +453,18 @@ def img_transform(image, imshape, rfftmask, rebin=True):
     and finally rebins squares of 4 pixels to 1 pixel, if rebin=True
     
     Args:
-        image (MxN array_like): DESCRIPTION.
-        imshape (tuple): if rebin=True both integers of imshape must be even.
-        rfftmask (Mx(N/2+1) array_like): mask in Fourier space.
-        rebin (bool, optional): DESCRIPTION. Defaults to True.
+        image (MxN array_like): 
+            DESCRIPTION.
+        imshape (tuple): 
+            if rebin=True both integers of imshape must be even.
+        rfftmask (Mx(N/2+1) array_like): 
+            mask in Fourier space.
+        rebin (bool, optional): 
+            DESCRIPTION. Defaults to True.
 
     Returns:
-        transformed_image (KxL array_like): result.
+        transformed_image (KxL array_like): 
+            result.
 
     """
     # imshape must be even for rebin
@@ -468,20 +484,23 @@ def img_transform(image, imshape, rfftmask, rebin=True):
     return (equ / np.max(equ) * 254 + 1).astype(np.uint8)
 
 
-#%%
 def img_transform_minimal(image, imshape,kernel):
     """
     special function that resizes an image to imshape,
     
     Args:
-        image (MxN array_like): DESCRIPTION.
+        image (MxN array_like): 
+            DESCRIPTION.
         
-        imshape ([int,int]): if rebin=True both integers of imshape must be even 
+        imshape ([int,int]): 
+            if rebin=True both integers of imshape must be even 
         
-        kernel (TYPE): DESCRIPTION.
+        kernel (TYPE): 
+            DESCRIPTION.
 
     Returns:
-        transformed_image (KxL array_like): result
+        transformed_image (KxL array_like): 
+            result
 
     """
     image[image <= 0] = 1
@@ -498,7 +517,40 @@ def img_transform_minimal(image, imshape,kernel):
         copt / np.max(copt), kernel_size=[32, 32], nbins=256
     )
     return img_to_uint8(new)#(equ / np.max(equ) * 254 + 1).astype(np.uint8)
+
+
 #%% asymmetric non maximum supppression
+
+@njit
+def _aysmmetric_non_maximum_suppression(
+    newimg, img, cimg, rimg, mask, thresh_ratio, ksize, asympix, damping
+):
+    ioffs = ksize // 2
+    joffs = ksize // 2 + asympix // 2
+
+    for i in range(ioffs, img.shape[0] - ioffs):
+        for j in range(joffs, img.shape[1] - joffs):
+            if not mask[i, j]:
+                pass
+            elif (
+                not mask[i - ioffs, j - joffs]
+                or not mask[i + ioffs, j + joffs]
+                or not mask[i - ioffs, j + joffs]
+                or not mask[i + ioffs, j - joffs]
+            ):
+                pass
+            else:
+                v = max(cimg[i, j - joffs : j + joffs + 1])
+                h = max(rimg[i - ioffs : i + ioffs + 1, j]) * ksize / (ksize + asympix)
+
+                if h > v * thresh_ratio:
+                    newimg[i, j] = img[i, j]
+                else:
+                    newimg[i, j] = (
+                        img[i, j] / damping
+                    )  # np.min(img[i-ioffs:i+ioffs+1,j-joffs:j+joffs+1])
+    return newimg
+
 
 
 def img_anms(img, mask, thresh_ratio=1.5, ksize=5, asympix=0, damping=5):
@@ -506,24 +558,31 @@ def img_anms(img, mask, thresh_ratio=1.5, ksize=5, asympix=0, damping=5):
     asymmetric non maximum supppression
 
     Args:
-        img (array_like): DESCRIPTION.
+        img (array_like): 
+            DESCRIPTION.
         
-        mask (TYPE): DESCRIPTION.
+        mask (TYPE): 
+            DESCRIPTION.
         
-        thresh_ratio (float, optional): DESCRIPTION. 
-        Defaults to 1.5.
+        thresh_ratio (float, optional): 
+            DESCRIPTION. 
+            Defaults to 1.5.
         
-        ksize (int, optional): uneven integer. 
-        Defaults to 5.
+        ksize (int, optional): 
+            uneven integer. 
+            Defaults to 5.
         
-        asympix (TYPE, optional): DESCRIPTION. 
-        Defaults to 0.
+        asympix (TYPE, optional): 
+            DESCRIPTION. 
+            Defaults to 0.
         
-        damping (TYPE, optional): DESCRIPTION. 
-        Defaults to 5.
+        damping (TYPE, optional): 
+            DESCRIPTION. 
+            Defaults to 5.
 
     Returns:
-        processed_image (array_like): DESCRIPTION.
+        processed_image (array_like): 
+            DESCRIPTION.
 
     """
     newimg = copy.deepcopy(img)

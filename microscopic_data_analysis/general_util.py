@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from .image_processing import img_make_square
 import os
 
-#%%
+#%% bins for histograms
 def bin_centering(x_bins,additional_boundary_bin_threshold=None):
     """
     transform bin thresholds to x values
@@ -251,21 +251,22 @@ def stitch_1d_overlap(x1,y1,x2,y2,scale_adjustment=True,newbins=False,verbose=Fa
         
     return new_x,new_y
     
-#%%
 
-
-#%% get_files_of_format
+#%% path (get_files_) functions
 def get_files_of_format(path,ending):
     """
     searches files with the given ending within the directory
 
     Args:
-        path (string): relative or absolute path to a directory.
+        path (string): 
+            relative or absolute path to a directory.
         
-        ending (string): typical usecase: ".png" to get all png-images.
+        ending (string): 
+            typical usecase: ".png" to get all png-images.
 
     Returns:
-        pathlist (list): list of the paths of files with the specific ending
+        pathlist (list): 
+            list of the paths of files with the specific ending
 
     """
     files = os.listdir(path)
@@ -281,7 +282,7 @@ def get_files_of_format(path,ending):
         if files[i][-len(ending):] == desired_format:
             pathlist.append(path+files[i])
     return pathlist
-#%%
+
 
 def get_all_files(folder='.',ending=None,start=None):
     """
@@ -290,17 +291,21 @@ def get_all_files(folder='.',ending=None,start=None):
     within the given folder
 
     Args:
-        folder (string, optional): directory name. Defaults to '.'.
+        folder (string, optional): 
+            directory name. Defaults to '.'.
         
-        ending (string, optional): typical usecase: ".png" to get all png-images. 
-        Defaults to None.
+        ending (string, optional): 
+            typical usecase: ".png" to get all png-images. 
+            Defaults to None.
         
-        start (string, optional): pattern in the beginning of each filename. 
-        for example use "img" here: "img1.png,img2.tif,img3.jpeg" 
-        Defaults to None.
+        start (string, optional): 
+            pattern in the beginning of each filename. 
+            for example use "img" here: "img1.png,img2.tif,img3.jpeg" 
+            Defaults to None.
         
     Returns:
-        filepaths (list): list of paths.
+        filepaths (list): 
+            list of paths.
 
     """
     filenames=[]#os.listdir(folder)
@@ -316,19 +321,22 @@ def get_all_files(folder='.',ending=None,start=None):
     
     return filenames
 
-#%% folder_file
+
 def folder_file(path_string):
     """
     split a string presenting a path with the filename into the filename and the 
     directory-path. (works with slash, backslash or double backslash as seperator)
 
     Args:
-        path_string (string): absolute or relative path.
+        path_string (string): 
+            absolute or relative path.
 
     Returns:
-        directory_path (string): folder.
+        directory_path (string): 
+            folder.
         
-        filename (string): file.
+        filename (string): 
+            file.
 
     """
     
@@ -345,7 +353,8 @@ def assure_multiple(*x):
     its iterable container.
 
     Args:
-        \*x (TYPE): DESCRIPTION.
+        \*x (TYPE): 
+            DESCRIPTION.
         
     Returns:
         TYPE: DESCRIPTION.
@@ -365,7 +374,29 @@ def assure_multiple(*x):
     else:
         return res
 
-#%%
+#%% circular masks
+
+
+@njit
+def circ_mask(x0, y0, r, image):
+    mask = np.zeros(np.shape(image), dtype=np.uint8)
+    r2=r**2
+    for i in range(image.shape[0]):
+        for j in range(image.shape[1]):
+            if (i - x0) ** 2 + (j - y0) ** 2 < r2:
+                mask[i, j] = 1
+    return mask
+
+
+def make_circular_mask(x0, y0, r, image):
+    if x0 % 2 != 0 or y0 % 2 != 0:
+        return circ_mask(x0, y0, r, image)
+    else:
+        mask = np.zeros(np.shape(image))
+        return cv2.circle(mask, [x0, y0], r, 1, -1)
+
+
+
 def rfft_circ_mask(imshape, mask_radius=680, mask_sigma=50):
     kernel_size = 7 * mask_sigma
     if kernel_size % 2 == 0:
@@ -450,7 +481,7 @@ def peak_com2d(data, delta=None, roi=None):
     return np.array([xpos, ypos]), np.array([mvposx, mvposy]),delt
 
 
-#%%
+#%% geometrical functioins
 def polygon_roi(directions_deg, radius):
     directions_deg = np.array(directions_deg)
     directions_neg = directions_deg + 180
@@ -467,7 +498,7 @@ def polygon_roi(directions_deg, radius):
     return x.astype(int), y.astype(int)
 
 
-#%%
+
 @njit("float64(float64,float64,float64,float64,float64,float64)")
 def isleft(P0_0, P0_1, P1_0, P1_1, P2_0, P2_1):
     return (P1_0 - P0_0) * (P2_1 - P0_1) - (P2_0 - P0_0) * (P1_1 - P0_1)
@@ -506,9 +537,6 @@ def intersect(A, B, C, D):
     return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
 
 
-
-
-
 #%% get_angular_dist
 def get_angular_dist(image, borderdist=100, centerdist=20, plotcheck=False):
     """
@@ -516,21 +544,27 @@ def get_angular_dist(image, borderdist=100, centerdist=20, plotcheck=False):
     (like phi in polar coordinate)  
 
     Args:
-        image (TYPE): DESCRIPTION.
+        image (TYPE): 
+            DESCRIPTION.
         
-        borderdist (TYPE, optional): DESCRIPTION. 
-        Defaults to 100.
+        borderdist (TYPE, optional): 
+            DESCRIPTION. 
+            Defaults to 100.
         
-        centerdist (TYPE, optional): DESCRIPTION. 
-        Defaults to 20.
+        centerdist (TYPE, optional): 
+            DESCRIPTION. 
+            Defaults to 20.
         
-        plotcheck (TYPE, optional): DESCRIPTION. 
-        Defaults to False.
+        plotcheck (TYPE, optional): 
+            DESCRIPTION. 
+            Defaults to False.
 
     Returns:
-        angledeg (TYPE): DESCRIPTION.
+        angledeg (TYPE): 
+            DESCRIPTION.
         
-        values (TYPE): DESCRIPTION.
+        values (TYPE): 
+            DESCRIPTION.
 
     """
     if image.shape[0] != image.shape[1]:
@@ -634,44 +668,14 @@ def take_map(mapimage, tilesize=1000, overlap=0.25):
     return images, lowhigh
 
 
-#%% circ_mask
 
+#%% smoothbox_kernel
 
-@njit
-def circ_mask(x0, y0, r, image):
-    mask = np.zeros(np.shape(image), dtype=np.uint8)
-    r2=r**2
-    for i in range(image.shape[0]):
-        for j in range(image.shape[1]):
-            if (i - x0) ** 2 + (j - y0) ** 2 < r2:
-                mask[i, j] = 1
-    return mask
-
-
-def make_circular_mask(x0, y0, r, image):
-    if x0 % 2 != 0 or y0 % 2 != 0:
-        return circ_mask(x0, y0, r, image)
-    else:
-        mask = np.zeros(np.shape(image))
-        return cv2.circle(mask, [x0, y0], r, 1, -1)
-
-
-#%% get_max deprecated
-#def get_max(z):
-#    "returns the indices of the maximum value of an array MxN"
-#    maxpos = np.argmax(z)
-#    x0 = maxpos // z.shape[1]
-#    y0 = maxpos % z.shape[1]
-#    return np.array([x0, y0]).astype(int)
-
-
-#%% pascal triangle
 def _pascal_numbers(n):
     """Returns the n-th row of Pascal's triangle"""
     return scipy.special.comb(n, np.arange(n + 1))
 
 
-#%% smoothbox_kernel
 def smoothbox_kernel(kernel_size):
     """Gaussian Smoothing kernel approximated by integer-values obtained via binomial distribution"""
     r = kernel_size[0]
@@ -692,7 +696,7 @@ def smoothbox_kernel(kernel_size):
 
 
 
-#%% make Mask
+#%% make border Mask
 
 
 @njit
@@ -719,8 +723,7 @@ def make_mask(rot, d=3):
 
 
 
-#%%
-
+#%% homogeneous image threshold
 
 def determine_thresh(image):
     Nrows, Ncols = image.shape

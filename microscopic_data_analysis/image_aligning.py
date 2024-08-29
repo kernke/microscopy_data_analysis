@@ -17,12 +17,15 @@ def phase_correlation(a, b):
     with same shape MxN
 
     Args:
-        a (MxN array_like): first image.
+        a (MxN array_like): 
+            first image.
         
-        b (MxN array_like): second image.
+        b (MxN array_like): 
+            second image.
 
     Returns:
-        r (MxN array_like): phase correlation matrix.
+        r (MxN array_like): 
+            phase correlation matrix.
 
     """
     G_a = np.fft.fft2(a)
@@ -39,12 +42,15 @@ def max_from_2d(A):
     get the position and value of the maximum from a matrix or image
 
     Args:
-        A (MxN array_like): input 2D-signal.
+        A (MxN array_like): 
+            input 2D-signal.
 
     Returns:
-        maximum_position (tuple): containing two integers.
+        maximum_position (tuple): 
+            containing two integers.
         
-        maximum_value (scalar): datatype depending on the input.
+        maximum_value (scalar): 
+            datatype depending on the input.
 
     """
 
@@ -58,7 +64,7 @@ def max_from_2d(A):
     return maximum_position,maximum_value
 
 
-#%%
+#%% stitching
 
 def stitch(im1, im2):
     """
@@ -66,12 +72,15 @@ def stitch(im1, im2):
     The images must have the the same shape (MxN) and some overlap 
     
     Args:
-        im1 (MxN array_like): first image.
+        im1 (MxN array_like): 
+            first image.
         
-        im2 (MxN array_like): second image.
+        im2 (MxN array_like): 
+            second image.
 
     Returns:
-        stitched (KxL array_like): montage of the two images.
+        stitched (KxL array_like): 
+            montage of the two images.
 
     """
 
@@ -100,7 +109,7 @@ def stitch(im1, im2):
     stitched=sheet / sheetdiv
     return stitched
 
-#%%
+
 
 
 def stitch_given_shift(im1, im2,pc):
@@ -109,12 +118,15 @@ def stitch_given_shift(im1, im2,pc):
     The images must have the the same shape (MxN) and some overlap 
     
     Args:
-        im1 (MxN array_like): first image.
+        im1 (MxN array_like): 
+            first image.
         
-        im2 (MxN array_like): second image.
+        im2 (MxN array_like): 
+            second image.
 
     Returns:
-        stitched (KxL array_like): montage of the two images.
+        stitched (KxL array_like): 
+            montage of the two images.
 
     """
     
@@ -155,7 +167,6 @@ def stitch_given_shift(im1, im2,pc):
     return stitched
 
 
-#%%
 #%% align
 
 def align(im1, im2,printing=False,_verbose=False):
@@ -165,18 +176,23 @@ def align(im1, im2,printing=False,_verbose=False):
     The images must have the the same shape (MxN) and some overlap 
 
     Args:
-        im1 (MxN array_like): first image.
+        im1 (MxN array_like): 
+            first image.
         
-        im2 (MxN array_like): second image.
+        im2 (MxN array_like): 
+            second image.
         
-        printing (bool, optional): set to "True" for printing more information about the function execution. 
-        Defaults to False.
+        printing (bool, optional): 
+            set to "True" for printing more information about the function execution. 
+            Defaults to False.
         
-        verbose (bool,optional): set to "True" for additionally returning indices about the relative
-        positioning. Defaults to False.
+        verbose (bool,optional): 
+            set to "True" for additionally returning indices about the relative
+            positioning. Defaults to False.
 
     Returns:
-        offset (tuple): containing two integers.
+        offset (tuple): 
+            containing two integers.
 
     """
     pcm = phase_correlation(im1, im2)
@@ -295,20 +311,27 @@ def align(im1, im2,printing=False,_verbose=False):
         return pc
 
 
-#%% align precise
 def align_com_precise(im1, im2,delta=None,show=False,artifacts=None):
     """
     
 
     Args:
-        im1 (TYPE): DESCRIPTION.
-        im2 (TYPE): DESCRIPTION.
-        delta (TYPE, optional): DESCRIPTION. Defaults to None.
-        show (TYPE, optional): DESCRIPTION. Defaults to False.
-        artifacts (TYPE, optional): DESCRIPTION. Defaults to None.
+        im1 (TYPE): 
+            DESCRIPTION.
+        im2 (TYPE): 
+            DESCRIPTION.
+        delta (TYPE, optional): 
+            DESCRIPTION. 
+            Defaults to None.
+        show (TYPE, optional): 
+            DESCRIPTION. 
+            Defaults to False.
+        artifacts (TYPE, optional): 
+            DESCRIPTION. Defaults to None.
 
     Returns:
-        pc (TYPE): DESCRIPTION.
+        pc (TYPE): 
+            DESCRIPTION.
 
     """
     
@@ -361,7 +384,7 @@ def align_com_precise(im1, im2,delta=None,show=False,artifacts=None):
         
     return pc
 
-
+#%% stacks
 def stack_crop_shifts(stack,shifts):
     delta=np.max(shifts,axis=0)-np.min(shifts,axis=0)
     delta=delta.astype(int)
@@ -410,7 +433,28 @@ def stack_align_com_precise(imgs,shifts):
     
     return res
 
+def stack_shifting(imgs):
+    #img=imgs[0]
+    shifts=np.zeros([len(imgs),2],dtype=int)
+    for i in range(len(imgs)-1):
+        shifts[i+1]=align(imgs[i],imgs[i+1])
+    return np.cumsum(shifts,axis=0)#shifts
 
+def stack_align(imgs,shifts):
+    shifts=shifts.astype(int)
+    ma_sh=np.max(shifts,axis=0)
+    mi_sh=np.min(shifts,axis=0)
+    to_sh=ma_sh-mi_sh
+    
+    size=imgs[0].shape
+    new=np.zeros([len(imgs),size[0]+to_sh[0],size[1]+to_sh[1]])
+    nshifts = shifts-mi_sh
+    for i in range(len(imgs)):        
+        new[i,nshifts[i,0]:nshifts[i,0]+size[0],nshifts[i,1]:nshifts[i,1]+size[1]]=imgs[i]
+    
+    return new
+
+#%% fine_tuning_shifts (real space align)
 def fine_tuning_shifts(aligned_stack,delta=4):
     stack=np.zeros([aligned_stack.shape[0],aligned_stack.shape[1]+1,aligned_stack.shape[2]+1],dtype=np.int16)
     for i in range(len(stack)):
@@ -438,26 +482,6 @@ def fine_tuning_shifts(aligned_stack,delta=4):
     return -np.cumsum(shifts,axis=0)
 
 
-def stack_shifting(imgs):
-    #img=imgs[0]
-    shifts=np.zeros([len(imgs),2],dtype=int)
-    for i in range(len(imgs)-1):
-        shifts[i+1]=align(imgs[i],imgs[i+1])
-    return np.cumsum(shifts,axis=0)#shifts
-
-def stack_align(imgs,shifts):
-    shifts=shifts.astype(int)
-    ma_sh=np.max(shifts,axis=0)
-    mi_sh=np.min(shifts,axis=0)
-    to_sh=ma_sh-mi_sh
-    
-    size=imgs[0].shape
-    new=np.zeros([len(imgs),size[0]+to_sh[0],size[1]+to_sh[1]])
-    nshifts = shifts-mi_sh
-    for i in range(len(imgs)):        
-        new[i,nshifts[i,0]:nshifts[i,0]+size[0],nshifts[i,1]:nshifts[i,1]+size[1]]=imgs[i]
-    
-    return new
 
 #%% pos_from_pcm
 
@@ -718,10 +742,12 @@ def contrast_correction(images):
     at the same position
 
     Args:
-        images (list of images): input.
+        images (list of images): 
+            input.
 
     Returns:
-        images_corrected (list of images): output.
+        images_corrected (list of images): 
+            output.
 
     """
     # 
@@ -1270,7 +1296,7 @@ def align_images(im1s, im2, p1s, p2, verbose=False):
         else:
             return im1res, img2Reg
         
-#%%
+#%% sift align matches
 def sift_align_matches(img1,img2,ratio_threshold=0.5):
     sift = cv2.SIFT_create()
 
@@ -1317,7 +1343,7 @@ def sift_align_matches(img1,img2,ratio_threshold=0.5):
                                 ) 
     return Matched,ptsA,ptsB
 
-#%%
+#%% stack_sift_align
 def stack_sift_align_to_first(stack,ratio=0.5,verbose=False):
     
     #get keypoints and good macthes
@@ -1381,20 +1407,23 @@ def stack_sift_align_to_first(stack,ratio=0.5,verbose=False):
         
         return imlist,metadata
     
-    
+#%% stack_align_from_matrices   
 def stack_align_from_matrices(stack,metadata):
     """
     Aligns a stack of images using the homographic transformation calculated
     by the function stack_sift_align_to_first() with argument verbose=True
 
     Args:
-        stack (KxMxN array_like or list of MxN array_likes): stack of images 
-        (different image dimensionss, e.g. one with 1024x512 and another with 234x653, are possible).
+        stack (KxMxN array_like or list of MxN array_likes): 
+            stack of images 
+            (different image dimensionss, e.g. one with 1024x512 and another with 234x653, are possible).
         
-        metadata (dictionary): transformational information as given by stack_sift_align_to_first.
+        metadata (dictionary): 
+            transformational information as given by stack_sift_align_to_first.
 
     Returns:
-        imlist (list of MxN): list of aligned images.
+        imlist (list of MxN): 
+            list of aligned images.
 
     """
     

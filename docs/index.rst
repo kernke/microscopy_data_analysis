@@ -11,8 +11,9 @@ Welcome to microscopic data analysis docs's documentation!
    :caption: Contents:
 
    stitch_overlap
+   peak_fit
    microscopic_data_analysis
-   peak_fitting
+   test
 
 Indices and tables
 ==================
