@@ -25,7 +25,7 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install stuff
-      run: apt install libopenblas-dev
+      run: sudo apt-get install libopenblas-dev
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
