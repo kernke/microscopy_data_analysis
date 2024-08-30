@@ -1,0 +1,24 @@
+# yaml file for configuring how readthedocs processes the documentation
+# Refer to https://docs.readthedocs.io/en/stable/config-file/v2.html for details.
+
+# Version of readthedoc's config style
+version: 2
+
+# Set the version of Python and other tools you might need
+build:
+  os: ubuntu-22.04
+  tools:
+    python: "3.10"
+
+# Path to sphinx's configuration file
+sphinx:
+  configuration: docs/conf.py
+
+# Build pdf and htmlzip files in addition to the html documentation
+formats:
+  - htmlzip
+
+# Additional requirements for the documentation
+python:
+  install:
+    - requirements: docs/requirements.txt
