@@ -4,7 +4,7 @@ create dummy data 1D
 """
 
 import numpy as np
-import microscopic_data_analysis as mda
+import microscopy_data_analysis as mda
 
 
 def run_script():

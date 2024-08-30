@@ -1,78 +1,78 @@
-microscopic\_data\_analysis package
+microscopy\_data\_analysis package
 ===================================
 
 Submodules
 ----------
 
-microscopic\_data\_analysis.data\_formats\_io module
+microscopy\_data\_analysis.data\_formats\_io module
 ----------------------------------------------------
 
-.. automodule:: microscopic_data_analysis.data_formats_io
+.. automodule:: microscopy_data_analysis.data_formats_io
    :members:
    :undoc-members:
    :show-inheritance:
 
 
-microscopic\_data\_analysis.general\_util module
+microscopy\_data\_analysis.general\_util module
 ------------------------------------------------
 
-.. automodule:: microscopic_data_analysis.general_util
+.. automodule:: microscopy_data_analysis.general_util
    :members:
    :undoc-members:
    :show-inheritance:
 
-microscopic\_data\_analysis.h5\_util module
+microscopy\_data\_analysis.h5\_util module
 -------------------------------------------
 
-.. automodule:: microscopic_data_analysis.h5_util
+.. automodule:: microscopy_data_analysis.h5_util
    :members:
    :undoc-members:
    :show-inheritance:
 
-microscopic\_data\_analysis.image\_aligning module
+microscopy\_data\_analysis.image\_aligning module
 --------------------------------------------------
 
-.. automodule:: microscopic_data_analysis.image_aligning
+.. automodule:: microscopy_data_analysis.image_aligning
    :members:
    :undoc-members:
    :show-inheritance:
 
-microscopic\_data\_analysis.image\_processing module
+microscopy\_data\_analysis.image\_processing module
 ----------------------------------------------------
 
-.. automodule:: microscopic_data_analysis.image_processing
+.. automodule:: microscopy_data_analysis.image_processing
    :members:
    :undoc-members:
    :show-inheritance:
 
-microscopic\_data\_analysis.line\_analysis module
+microscopy\_data\_analysis.line\_analysis module
 -------------------------------------------------
 
-.. automodule:: microscopic_data_analysis.line_analysis
+.. automodule:: microscopy_data_analysis.line_analysis
    :members:
    :undoc-members:
    :show-inheritance:
 
-microscopic\_data\_analysis.line\_detection module
+microscopy\_data\_analysis.line\_detection module
 --------------------------------------------------
 
-.. automodule:: microscopic_data_analysis.line_detection
+.. automodule:: microscopy_data_analysis.line_detection
    :members:
    :undoc-members:
    :show-inheritance:
 
-microscopic\_data\_analysis.peak\_fitting module
+microscopy\_data\_analysis.peak\_fitting module
 ------------------------------------------------
 
-.. automodule:: microscopic_data_analysis.peak_fitting
+.. automodule:: microscopy_data_analysis.peak_fitting
    :members:
    :undoc-members:
    :show-inheritance:
 
-microscopic\_data\_analysis.visualisation module
+microscopy\_data\_analysis.visualisation module
 ------------------------------------------------
 
-.. automodule:: microscopic_data_analysis.visualisation
+.. automodule:: microscopy_data_analysis.visualisation
    :members:
    :undoc-members:
    :show-inheritance:
@@ -81,7 +81,7 @@ microscopic\_data\_analysis.visualisation module
   Module contents
   ---------------
   
-  .. automodule:: microscopic_data_analysis
+  .. automodule:: microscopy_data_analysis
      :members:
      :undoc-members:
      :show-inheritance:
