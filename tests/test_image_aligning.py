@@ -8,7 +8,7 @@ Created on Mon Aug  5 15:35:09 2024
 import pytest
 
 from numpy.testing import assert_allclose
-from microscopic_data_analysis import image_aligning
+from microscopy_data_analysis import image_aligning
 
 def test_phase_correlation(
         central_pattern_img,
