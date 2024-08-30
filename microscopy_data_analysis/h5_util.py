@@ -497,6 +497,9 @@ def h5_enhance_and_align(
 
             time0 = times[0]
 
+            #check ####
+            ccounter=0
+
             # for ccounter in range(len(rotangles)):
             #    name="/check"+str(ccounter)+"_"
             #    res.create_dataset(tempnames[j]+name, shape=[len(iroi),imshape[0],imshape[1]],dtype=np.uint8,
@@ -583,6 +586,9 @@ def h5_thresholding(newh5, oldh5, rotangles, tempnames, params, roi=None):
 
             times = hf[tempnames[j] + "/time"][()]
             res[tempnames[j] + "/time"] = times
+            ### check
+            inames=[""]
+            iroi=[""]
             
             name = "check0_" + inames[j]
             img = hf[name][0]
@@ -606,7 +612,8 @@ def h5_thresholding(newh5, oldh5, rotangles, tempnames, params, roi=None):
                 iroi = roi
 
             for i in iroi:
-                print(k)
+                pass
+                #print(k)
                 # if k==1:
                 #    break
 

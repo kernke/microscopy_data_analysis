@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from numba import njit
 import pandas as pd
+from IPython import display
 
 #%% peak_com
 def center_of_mass(y,x=None,bins=None,roi=None):
