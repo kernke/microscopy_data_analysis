@@ -40,32 +40,6 @@ templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store','deprecated.py','under_construction.py']
 
 
-# -- Settings for autoapi extension ----------------------------
-
-# autoapi gets the docstrings for all public modules in the package
-autoapi_type = 'python'
-autoapi_dirs = ['../microscopy_data_analysis']
-autoapi_template_dir = '_templates/autoapi'
-autoapi_root = 'api'
-autoapi_options = [
-    'members',
-    'inherited-members',
-    #'undoc-members', # show objects that do not have doc strings
-    #'private_members', # show private objects (_variable)
-    #'show-inheritance',
-    'show-module-summary',
-    #'special-members', # show things like __str__
-    #'imported-members', # document things imported within each module
-]
-autoapi_member_order = 'groupwise'  # groups into classes, functions, etc.
-autoapi_python_class_content = 'class'  # include class docstring from class and/or __init__
-autoapi_keep_files = False  # keep the files after generation
-autoapi_add_toctree_entry = True  # need to manually add to toctree if False
-autoapi_generate_api_docs = True  # will not generate new docs when False
-
-# ignore an import warning from sphinx-autoapi due to double import of utils
-suppress_warnings = ['autoapi.python_import_resolution', 'autosectionlabel']
-
 
 
 # -- Options for HTML output -------------------------------------------------
