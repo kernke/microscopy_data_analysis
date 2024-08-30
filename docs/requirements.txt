@@ -1,4 +1,5 @@
 numpy==1.26.4
 scipy==1.12.0
-ipykernel
-nbsphinx
+ipykernel==6.28.0
+nbsphinx==0.9.5
+nbsphinx_link==1.3.0
