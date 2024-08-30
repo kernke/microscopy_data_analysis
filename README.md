@@ -15,12 +15,8 @@ After changing into the directory containing setup.py , install via
 
     pip install .  
 
-In the same way (for example: within the Anaconda Prompt, if you are using that) type:
 
-    .\docs\make.bat html
-
-to obtain the documentation in "docs/_build/html/microscopic_data_analysis.html".
-For the moment, creating the documentation still results in a few warnings, that can be ignored.
+Documentation: https://microscopy-data-analysis.readthedocs.io
 
 To make sure everything works fine, tests can be executed by typing
 
