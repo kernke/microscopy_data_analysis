@@ -6,8 +6,8 @@ version: 2
 
 # Set the version of Python and other tools you might need
 build:
-  os:  Windows-10-10.0.19045
-  #ubuntu-22.04
+  os:  ubuntu-22.04
+  #Windows-10-10.0.19045
   tools:
     python: "3.10"
 
