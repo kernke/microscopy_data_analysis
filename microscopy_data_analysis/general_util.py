@@ -80,13 +80,13 @@ def create_bins(x):
 
 def stitch_1d_overlap(x1,y1,x2,y2,scale_adjustment=True,newbins=False,verbose=False):
     """
-    stitch two 1d-signals (x1,y1 and x2,y2) containing some overlap in x,
-    x1 and x2 must be uniformly spaced and in increasing order
+    stitch two 1d-signals (x1,y1 and x2,y2) containing some overlap in x.
+    x1 and x2 must be uniformly spaced and in increasing order.
     within the overlap region the finer resolution in x is kept
+    (any interpolation in this function is done linearly).
     
-    adjusting the scale for a smooth transition from y1 to y2 
-    happens towards data with finer resolution, by using the mean within the overlap region
-    (any interpolation in this function is done linearly)
+    adjust the scale of y1 and y2 such that they yield the same mean value
+    in the overlap region, by multiplying both signals with a fixed factor
     
     (typical use case: two spectroscopic measurements with different settings,
     yielding two spectra of different wavelength-regions with some overlap)
@@ -234,16 +234,27 @@ def stitch_1d_overlap(x1,y1,x2,y2,scale_adjustment=True,newbins=False,verbose=Fa
     overlap2=newy2[overlap_region]
 
     # adjust the scale by comparing the mean within the overlap region 
-    factor1=np.mean(overlap2)/np.mean(overlap1)
+    overlapmean1=np.mean(overlap1)
+    overlapmean2=np.mean(overlap2)
+    omean=(overlapmean1+overlapmean2)/2
+    
+    factor1=omean/overlapmean1
+    factor2=omean/overlapmean2
+    #factor1=np.mean(overlap2)/np.mean(overlap1)
     if not scale_adjustment:
         factor1=1
+        factor2=1
         
     newy1*= factor1
+    newy2*= factor2
     if verbose:
         if switched:
-            print("scale factor adjusting y2 to y1 is "+str(factor1))
+            print("scale factor adjusting y1 is "+str(factor2))
+            print("scale factor adjusting y2 is "+str(factor1))
+
         else:
-            print("scale factor adjusting y1 to y2 is "+str(factor1))
+            print("scale factor adjusting y1 is "+str(factor1))
+            print("scale factor adjusting y2 is "+str(factor2))
             
     # actually execute the weighted sum 
     new_y=newy1*new_y_weights1 + newy2*new_y_weights2
