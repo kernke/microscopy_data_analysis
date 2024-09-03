@@ -17,6 +17,7 @@ sphinx:
 
 # Build pdf and htmlzip files in addition to the html documentation
 formats:
+  - pdf
   - htmlzip
 
 # Additional requirements for the documentation
