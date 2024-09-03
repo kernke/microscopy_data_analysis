@@ -11,6 +11,8 @@ import scipy.special
 
 from skimage.draw import circle_perimeter
 from skimage.draw import line_aa
+from skimage.draw import disk
+
 import matplotlib.pyplot as plt
 
 from .image_processing import img_make_square
@@ -385,27 +387,45 @@ def assure_multiple(*x):
     else:
         return res
 
-#%% circular masks
+
+#%% circular masks 
 
 
-@njit
-def circ_mask(x0, y0, r, image):
-    mask = np.zeros(np.shape(image), dtype=np.uint8)
-    r2=r**2
-    for i in range(image.shape[0]):
-        for j in range(image.shape[1]):
-            if (i - x0) ** 2 + (j - y0) ** 2 < r2:
-                mask[i, j] = 1
-    return mask
-
-
-def make_circular_mask(x0, y0, r, image):
-    if x0 % 2 != 0 or y0 % 2 != 0:
-        return circ_mask(x0, y0, r, image)
+def circle_perimeter_points(row, col, r, image,accurate=False):
+    if isinstance(row,float) or isinstance(col,float) or isinstance(r,float):
+        accurate=True
+    if accurate:
+        mask=make_circular_mask(row, col, r, image)
+        kernel=np.zeros([3,3],dtype=np.uint8)
+        kernel[:,1]=1
+        kernel[1,:]=1
+        res=cv2.dilate(mask,kernel)-mask
+        rr,cc=np.where(res==1)
     else:
-        mask = np.zeros(np.shape(image))
-        return cv2.circle(mask, [x0, y0], r, 1, -1)
+        rr, cc=circle_perimeter(row,col, r,shape=image.shape)
+    return np.array((rr,cc))
 
+
+
+def make_circular_mask(row, col, r, image):
+    """
+    create a circular mask, with row , col and r either being integers or float
+
+    Args:
+        row (TYPE): DESCRIPTION.
+        col (TYPE): DESCRIPTION.
+        r (TYPE): DESCRIPTION.
+        image (TYPE): DESCRIPTION.
+
+    Returns:
+        TYPE: DESCRIPTION.
+
+    """
+    
+    mask = np.zeros(image.shape)
+    ind=disk((row, col), r,shape=image.shape)
+    mask[ind]=1
+    return mask
 
 
 def rfft_circ_mask(imshape, mask_radius=680, mask_sigma=50):
@@ -413,7 +433,7 @@ def rfft_circ_mask(imshape, mask_radius=680, mask_sigma=50):
     if kernel_size % 2 == 0:
         kernel_size += 1
     mask = make_circular_mask(
-        (imshape[0] - 1) / 2, (imshape[1] - 1) / 2, mask_radius, np.zeros(imshape)
+        int(imshape[0] / 2), int(imshape[1] /2), mask_radius, np.zeros(imshape)
     )
     maskb = cv2.GaussianBlur(
         mask.astype(np.double), [kernel_size, kernel_size], mask_sigma
@@ -430,7 +450,7 @@ def fft_circ_mask(imshape, mask_radius=680, mask_sigma=50):
     if kernel_size % 2 == 0:
         kernel_size += 1
     mask = make_circular_mask(
-        (imshape[0] - 1) / 2, (imshape[1] - 1) / 2, mask_radius, np.zeros(imshape)
+        int(imshape[0] / 2), int(imshape[1]  / 2), mask_radius, np.zeros(imshape)
     )
     maskb = cv2.GaussianBlur(
         mask.astype(np.double), [kernel_size, kernel_size], mask_sigma
@@ -551,7 +571,7 @@ def intersect(A, B, C, D):
 #%% get_angular_dist
 def get_angular_dist(image, borderdist=100, centerdist=20, plotcheck=False):
     """
-    angles measured in degrees starting from horizontal line counterclockwise 
+    angles measured in degrees starting from horizontal line counterclockwise (real space)
     (like phi in polar coordinate)  
 
     Args:
