@@ -407,59 +407,121 @@ def circle_perimeter_points(row, col, r, image,accurate=False):
 
 
 
-def make_circular_mask(row, col, r, image):
+def make_circular_mask(row, col, r, image=None,imshape=None):
     """
     create a circular mask, with row , col and r either being integers or float
+
 
     Args:
         row (TYPE): DESCRIPTION.
         col (TYPE): DESCRIPTION.
         r (TYPE): DESCRIPTION.
-        image (TYPE): DESCRIPTION.
+        image (TYPE, optional): DESCRIPTION. Defaults to None.
+        imshape (TYPE, optional): DESCRIPTION. Defaults to None.
+
+    Raises:
+        ValueError: DESCRIPTION.
 
     Returns:
-        TYPE: DESCRIPTION.
+        mask (TYPE): DESCRIPTION.
 
     """
-    
-    mask = np.zeros(image.shape)
-    ind=disk((row, col), r,shape=image.shape)
+    if imshape is None:
+        if image is None:
+            raise ValueError("either image and imshape must be given")
+        else:
+            imshape=image.shape
+        
+    mask = np.zeros(imshape)
+    ind=disk((row, col), r,shape=imshape)
     mask[ind]=1
     return mask
 
+#%% fftmasks
 
-def rfft_circ_mask(imshape, mask_radius=680, mask_sigma=50):
-    kernel_size = 7 * mask_sigma
-    if kernel_size % 2 == 0:
-        kernel_size += 1
+def rfft_circ_mask(imshape, mask_radius=680, mask_sigma=0):
+    rfftimshape=(imshape[0],int((imshape[1]+2)/2))
+
     mask = make_circular_mask(
-        int(imshape[0] / 2), int(imshape[1] /2), mask_radius, np.zeros(imshape)
+        int(imshape[0] / 2), 0, mask_radius, imshape=rfftimshape
     )
-    maskb = cv2.GaussianBlur(
-        mask.astype(np.double), [kernel_size, kernel_size], mask_sigma
-    )
+    if mask_sigma==0:
+        pass
+    else:
+        kernel_size = 6 * mask_sigma +1
 
-    rolledmask = np.roll(maskb, -int(maskb.shape[0] / 2), axis=0)
-    rolledmask = np.roll(rolledmask, -int(maskb.shape[1] / 2), axis=1)
+        mask = cv2.GaussianBlur(
+            mask, [kernel_size, kernel_size], mask_sigma)
+        mask /= np.max(mask)
 
-    halfrolledmask = rolledmask[:, : rolledmask.shape[1] // 2 + 1]
-    return halfrolledmask
+    mask = np.roll(mask, -int(mask.shape[0] / 2), axis=0)
+    return mask
 
-def fft_circ_mask(imshape, mask_radius=680, mask_sigma=50):
-    kernel_size = 7 * mask_sigma
-    if kernel_size % 2 == 0:
-        kernel_size += 1
+def fft_circ_mask(imshape, mask_radius=680, mask_sigma=0):
     mask = make_circular_mask(
-        int(imshape[0] / 2), int(imshape[1]  / 2), mask_radius, np.zeros(imshape)
-    )
-    maskb = cv2.GaussianBlur(
-        mask.astype(np.double), [kernel_size, kernel_size], mask_sigma
-    )
+        int(imshape[0] / 2), int(imshape[1] / 2), mask_radius, imshape)
+    if mask_sigma==0:
+        pass
+    else:
+        kernel_size = 6 * mask_sigma +1
+        mask = cv2.GaussianBlur(
+            mask, [kernel_size, kernel_size], mask_sigma )
+        mask /= np.max(mask)
 
-    return maskb
+    return mask
 
 
+def rfft_to_fft(rfft_img,fullshape):
+    fullfft=np.zeros(fullshape)
+    fullfft[:,:rfft_img.shape[1]]=rfft_img[::-1,::-1]
+    fullfft[:,-rfft_img.shape[1]:]=rfft_img
+    return fullfft        
 
+
+def rfft_starmask(angles,img=None,imshape=None,mask_sigma=0):
+    
+    if imshape is None:
+        if img is None:
+            raise ValueError("either image and imshape must be given")
+        else:
+            imshape=img.shape
+
+    # transform real space angles to reciprocal space radians
+    recanglerads=(angles-90)/180*np.pi
+    
+    rfftimshape=(imshape[0],int((imshape[1]+2)/2))
+    maskshift=np.zeros(rfftimshape)
+    center=np.array([int(imshape[0]/2),0])
+    
+    bounding_points_0=[0 for i in range(rfftimshape[1])]
+    bounding_points_0+=[i for i in range(rfftimshape[0])]
+    bounding_points_0+=[rfftimshape[0]-1 for i in range(rfftimshape[1])]
+    
+    bounding_points_1=[i for i in range(rfftimshape[1])]
+    bounding_points_1+=[rfftimshape[1]-1 for i in range(rfftimshape[0])]
+    bounding_points_1+=[i for i in range(rfftimshape[1]-1,-1,-1)]
+    
+    bps=np.array((bounding_points_0,bounding_points_1))
+
+    anglerads=-np.arctan2((bps[0]-center[0]).astype(np.double),bps[1].astype(np.double))
+
+    for i in range(len(recanglerads)):
+        pointind=np.argmin(np.abs(anglerads-recanglerads[i]))
+                
+        rp,cp=bps.T[pointind]
+        rr,cc,vv=line_aa(center[0],center[1],rp,cp)
+        maskshift[rr,cc]=1   
+
+    if mask_sigma==0:
+        pass
+    else:
+        kernel_size = 6 * mask_sigma +1
+        maskshift = cv2.GaussianBlur(
+        maskshift, [kernel_size, kernel_size], mask_sigma )
+        maskshift /= np.max(maskshift)
+
+    mask=np.roll(maskshift, -int(imshape[0] / 2), axis=0)
+    return mask
 #%% peak_com2d
 
 
@@ -605,31 +667,24 @@ def get_angular_dist(image, borderdist=100, centerdist=20, plotcheck=False):
         img=image
 
     fftimage = np.fft.rfft2(img)
-    rffti = np.roll(fftimage, -int(fftimage.shape[0] / 2), axis=0)
+    halfheight = int(img.shape[0] / 2)
+    rffti = np.roll(fftimage, halfheight, axis=0)
     fim = np.log(np.abs(rffti))
-    halfheight = fim.shape[0] // 2
     radius = halfheight - borderdist
-    center = np.array([fim.shape[0] // 2, 0], dtype=int)
+    center = np.array([halfheight, 0], dtype=int)
 
     rcirc, ccirc = circle_perimeter(*center, radius, shape=fim.shape)
 
-    values = np.zeros(len(rcirc))
-    angles = np.zeros(len(rcirc))
+    checkcirc = np.array([rcirc,ccirc]).T
 
-    checkcenter = np.zeros([len(rcirc), 2])
-    checkcirc = np.zeros([len(rcirc), 2])
+    dy,dx =rcirc-halfheight,ccirc
+    angles= - np.arctan2(dy, dx)
+    checkcenter= center + centerdist * np.array([dy, dx]).T / radius
+    checkcenter=np.round(checkcenter).astype(int)
 
+    values = np.zeros(len(rcirc))    
     for i in range(len(rcirc)):
-        dx, dy = ccirc[i], rcirc[i] - halfheight
-        angles[i] = -np.arctan2(dy, dx)
-        effcenter = np.round(center + centerdist * np.array([dy, dx]) / radius).astype(
-            int
-        )
-
-        checkcenter[i] = effcenter
-        checkcirc[i] = rcirc[i], ccirc[i]
-
-        rr, cc, vv = line_aa(*effcenter, rcirc[i], ccirc[i])
+        rr, cc, vv = line_aa(*checkcenter[i], *checkcirc[i])
         values[i] = np.sum(fim[rr, cc] * vv) / np.sum(vv)
 
     sortindex = np.argsort(angles)

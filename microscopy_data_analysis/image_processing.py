@@ -9,6 +9,23 @@ from skimage import  exposure
 import copy
 from numba import njit
 
+#%% autoclipping
+def img_autoclip(img,ratio=0.001):
+    """
+    auto clipping removing small and big outliers 
+
+    Args:
+        img (TYPE): DESCRIPTION.
+        ratio (TYPE, optional): DESCRIPTION. Defaults to 0.001.
+
+    Returns:
+        TYPE: DESCRIPTION.
+
+    """
+    imgdata=np.sort(np.ravel(img))
+    threshold=int(len(imgdata)*ratio)
+    return np.clip(img,imgdata[threshold],imgdata[-threshold])
+
 
 #%% morphLaplace
 def img_morphLaplace(image, kernel):
