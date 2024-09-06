@@ -12,7 +12,8 @@ All code available at `github <https://github.com/kernke/microscopy_data_analysi
    :maxdepth: 2
    :caption: Contents:
 
-   examples
+   1D_examples
+   2D_examples
    microscopy_data_analysis
    test
 
