@@ -3,8 +3,10 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to microscopy data analysis docs's documentation!
+Welcome to microscopy data analysis documentation!
 ==========================================================
+
+All code available at `github <https://github.com/kernke/microscopy_data_analysis>`_
 
 .. toctree::
    :maxdepth: 2
