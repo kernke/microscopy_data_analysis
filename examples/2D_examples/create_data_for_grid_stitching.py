@@ -46,13 +46,8 @@ def run_script():
         tests[i]=tests[i]-np.min(tests[i])
         tests[i]=tests[i]/(np.max(tests[i]))+np.random.uniform(0.2,4) 
         tests[i]=tests[i]/(np.max(tests[i]))*255
-        cv2.imwrite('image_'+str(i)+'.tif', tests[i].astype(np.uint8))
+        cv2.imwrite('image_'+str(i).zfill(2)+'.tif', tests[i].astype(np.uint8))
         
-    #%% save original landscape    
-    testsave=test-np.min(test)
-    testsave=testsave/np.max(testsave)*255
-    
-    cv2.imwrite('image_without_noise_whole.png', testsave.astype(np.uint8))
 #%%   
 if __name__ == '__main__':
     run_script()

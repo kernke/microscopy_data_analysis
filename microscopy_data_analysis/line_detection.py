@@ -49,7 +49,10 @@ def line_enhance_horizontal(trot, mask, ksize=None, dist=1, iterations=2, line="
         tres[dist:, :] += t1[:-dist, :] * (srot[:-dist, :] - middle)
 
         res *= tres
-    return res ** (1 / (iterations + 1)), trot / np.max(trot) * 255
+        
+    returnres=res ** (1 / (iterations + 1))
+    returntrot=trot / np.max(trot) * 255
+    return returnres , returntrot 
 
 
 #%% obtain_maps

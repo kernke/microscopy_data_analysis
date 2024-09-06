@@ -2,5 +2,5 @@ Examples
 ========
 
 .. nbgallery::
-   examples/stitch_overlap
-   examples/peak_fit
+   1D_examples/stitch_overlap
+   1D_examples/peak_fit
