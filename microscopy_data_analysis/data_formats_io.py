@@ -17,6 +17,84 @@ from .image_processing import img_to_uint8
 
 
 
+def imsave(filename,img):
+    """
+    writes single (greyscale), triple (RGB), quadrupel (RGBA) channel images 
+    per default as ".png", supporting uint8, uint16 formats.
+    Additionally single (greyscale) channel images in any float will be written as ".tif" (float32)
+    no filename extension determining the format like ("png","jpeg",...) is necessary, 
+    but can be given to obtain the desired format, differing from the "png","tif" default
+
+    Args:
+        filename (string): 
+            filename with or without extension determining the format.
+        img (array_like): 
+            image matrix, either MxN, MxNx1, MxNx3 or MxNx4.
+
+    Returns:
+        success_info (bool): 
+            True, when succesfully written.
+
+    """
+    invfilename=filename[::-1]
+    dotpos=invfilename.find('.')
+    if dotpos==-1:
+        file_extension=".png"
+    else:
+        file_extension=invfilename[:dotpos+1][::-1]
+        filename=filename[:-dotpos-1]
+   
+    if np.issubdtype(img.dtype,np.floating):
+        file_extension=".tif"
+        img=img.astype(np.float32)
+    
+    fn=filename+file_extension
+    
+    if len(img.shape)==2:
+        cv2.imwrite(fn,img)
+    elif len(img.shape)==3:
+        if img.shape[2]==3 or img.shape[2]==4:
+            img[:,:,[0,2]]=img[:,:,[2,0]]
+            
+    return cv2.imwrite(fn,img)
+    
+
+def imsave_multi(filename,stack):
+    """
+    save multiple (single channel / greyscale) images as tiff-stack
+    (supported formats uint8, uint16, float32)
+
+    Args:
+        filename (string): 
+            filename with or without .tiff extension.
+        stack (list of images): 
+            grayscale images only containing one channel.
+
+    Returns:
+        success_info (bool): 
+            True, when succesfully written.
+
+    """
+    invfilename=filename[::-1]
+    dotpos=invfilename.find('.')
+    if dotpos==-1:
+        file_extension=".tiff"
+    else:
+        file_extension=invfilename[:dotpos+1][::-1]
+        filename=filename[:-dotpos-1]
+    
+    if np.issubdtype(stack[0].dtype,np.floating):
+        file_extension=".tiff"
+        for i in range(len(stack)):
+            stack[i]=stack[i].astype(np.float32)
+    
+        
+    fn=filename+file_extension        
+    return cv2.imwrite_multi(fn,stack)
+    
+    
+    
+
 def get_emd_with_metadata(filepath):
     """
     Read TEM-imgages as .emd-files 
