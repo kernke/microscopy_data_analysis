@@ -18,6 +18,43 @@ import matplotlib.pyplot as plt
 from .image_processing import img_make_square
 import os
 
+#%% dashed line in image
+
+def draw_dashed_line(img,start_point,end_point,color,thickness=1,segment_length=15,gap_length=10):
+    """
+    draw a dashed line on a 2D rasterized image
+
+    Args:
+        img (array_like): DESCRIPTION.
+        start_point (tuple or array_like): DESCRIPTION.
+        end_point (tuple or array_like): DESCRIPTION.
+        color (3 tupel): ( r , g, b ).
+        thickness (int, optional): DESCRIPTION. Defaults to 1.
+        segment_length (int, optional): DESCRIPTION. Defaults to 15.
+        gap_length (int, optional): DESCRIPTION. Defaults to 10.
+
+    Returns:
+        None.
+
+    """
+    startv=np.array(start_point)
+    endv=np.array(end_point)
+    line_length=np.sqrt(np.sum((endv-startv)**2))
+    unit_step=(endv-startv) / line_length
+    
+    current = np.copy(startv)
+    length_counter=0
+    while length_counter <line_length:
+        if line_length-length_counter<segment_length:
+            end=end_point
+        else:
+            end = current + segment_length*unit_step
+        
+        cv2.line(img, np.round(current).astype(int), np.round(end).astype(int), color, thickness)
+        current = end + gap_length*unit_step
+        length_counter += segment_length + gap_length
+
+
 #%% bins for histograms
 def bin_centering(x_bins,additional_boundary_bin_threshold=None):
     """
@@ -478,13 +515,8 @@ def rfft_to_fft(rfft_img,fullshape):
     return fullfft        
 
 
-def rfft_starmask(angles,img=None,imshape=None,mask_sigma=0):
+def rfft_starmask(angles,imshape,mask_sigma=0):
     
-    if imshape is None:
-        if img is None:
-            raise ValueError("either image and imshape must be given")
-        else:
-            imshape=img.shape
 
     # transform real space angles to reciprocal space radians
     recanglerads=(angles-90)/180*np.pi
