@@ -18,6 +18,137 @@ import matplotlib.pyplot as plt
 from .image_processing import img_make_square
 import os
 
+
+
+from ipywidgets import widgets
+from matplotlib.ticker import MultipleLocator
+import matplotlib as mpl
+import ipywidgets
+import json
+#from IPython import display
+
+
+def _cmap_from_setpoints(cmapname,setpoints):
+    cm = mpl.colormaps[cmapname]
+    n=len(setpoints)
+    cvals=np.linspace(0,1,n)
+    mean_diff=cvals[1]-cvals[0]
+    colors_per_set=int(np.round(512/(n-1)))
+    
+    number_of_colors=int(np.round((setpoints[1]-setpoints[0])/mean_diff * colors_per_set))
+    newcolors=cm(np.linspace(cvals[0],cvals[1],number_of_colors))
+    for i in range(1,n-1):
+        number_of_colors=int(np.round((setpoints[i+1]-setpoints[i])/mean_diff * colors_per_set))
+        appendcolors=cm(np.linspace(cvals[i],cvals[i+1],number_of_colors))
+        newcolors=np.vstack((newcolors,appendcolors))
+    return mpl.colors.ListedColormap(newcolors)
+
+def custom_colormap(img,colormap_name,number_of_colorsliders=3):
+    gradient = np.linspace(0, 1, 256)
+    gradient = np.vstack((gradient, gradient))
+    
+    setpoints=np.linspace(0,1,number_of_colorsliders+2)
+    nc=len(setpoints)
+    
+    val,bins=np.histogram(np.ravel(img),256)
+    contrastmin=np.min(img)
+    contrastmax=np.max(img)
+    contrastrange=contrastmax-contrastmin
+    
+    #readoutbool=True
+    wmin=0
+    wmax=1
+    wstep=0.01
+    wreadout=True
+    wupdate=True#False    
+    sliders=[]
+    arg_slider_dict={}
+    for i in range(nc):
+        sliders.append(widgets.FloatSlider(value=setpoints[i],min=wmin,max=wmax,step=wstep,readout=wreadout,continuous_update=wupdate))
+        arg_slider_dict["s"+str(i)]=sliders[-1]
+    links=[]
+    for i in range(nc-1):
+        links.append(ipywidgets.link((sliders[i], 'value'), (sliders[i+1], 'min')))            
+    ui = widgets.HBox(sliders)
+
+    def plot(*args):
+        svals=list(args)
+        fig,axs=plt.subplots(nrows=2,ncols=1,figsize=[8,10])
+        axs[0].plot(-.6-2*val/np.max(val),c='k')
+        axs[0].set_yticks([])
+        xtics=np.linspace(0,256,11)
+        xlabs=np.round(np.linspace(0,1,11),2)
+        axs[0].set_xticks(xtics,xlabs)
+        axs[0].xaxis.set_minor_locator(MultipleLocator(256/100))
+        axs[0].set_xlim([-1,256.5])
+        secax = axs[0].secondary_xaxis('top')
+        thirdax=axs[0].secondary_xaxis('bottom')
+        thirdax.set_xticks(np.linspace(0,256,11)+25.6/2,[])
+        secax.set_xticks([0,256],[np.round(contrastmin,3),np.round(contrastmax,3)])
+        newcmp=_cmap_from_setpoints(colormap_name,svals)
+        vmin=contrastmin + svals[0] * contrastrange
+        vmax=contrastmin + svals[-1] * contrastrange
+        
+        axs[1].imshow(img,cmap=newcmp,vmin=vmin,vmax=vmax)        
+        axs[0].imshow(gradient,aspect=10,cmap=newcmp,extent=(svals[0]*256,svals[-1]*256,1.5,-.5))
+  
+        for i in svals:
+            axs[0].plot([i*256,i*256],(-0.5,2/3-0.5),c='w')
+            axs[0].plot([i*256,i*256],(1.5-2/3,1.5),c='k')
+        
+        cmap_dict["colormap"]=newcmp
+        cmap_dict["vmin"]=vmin
+        cmap_dict["vmax"]=vmax
+        cmap_dict["setpoints"]=svals
+        
+        plt.tight_layout()
+        plt.show()
+    
+    cmap_dict={}
+    cmap_dict["name"]=colormap_name
+    
+    if number_of_colorsliders==1:
+        def meta_plot(s0,s1,s2):
+            plot(s0,s1,s2)
+    elif number_of_colorsliders==2:
+        def meta_plot(s0,s1,s2,s3):
+            plot(s0,s1,s2,s3)
+    elif number_of_colorsliders==3:
+        def meta_plot(s0,s1,s2,s3,s4):
+            plot(s0,s1,s2,s3,s4)
+    elif number_of_colorsliders==4:
+        def meta_plot(s0,s1,s2,s3,s4,s5):
+            plot(s0,s1,s2,s3,s4,s5)
+    elif number_of_colorsliders==5:
+        def meta_plot(s0,s1,s2,s3,s4,s5,s6):
+            plot(s0,s1,s2,s3,s4,s5,s6)
+    else:
+        print("number of colorsliders must be smaller or equal 5")
+
+    out = widgets.interactive_output(meta_plot, arg_slider_dict)
+    display(ui, out)
+    out.layout.height = '800px'
+
+    return cmap_dict#return_dict["colormap"],return_dict["vmin"],return_dict["vmax"]
+
+def save_cmap(filename,cmap_dict):
+    save_dict={}
+    save_dict["name"]=cmap_dict["name"]
+    save_dict["setpoints"]=cmap_dict["setpoints"]
+    save_dict["vmin"]=cmap_dict["vmin"]
+    save_dict["vmax"]=cmap_dict["vmax"]
+
+    with open(filename, 'w') as fp:
+        json.dump(save_dict,fp)
+    print("saved")
+
+def load_cmap(filename):
+    with open(filename, 'r') as fp:
+        cmap_dict= json.load(fp)
+    cmap_dict["colormap"]=_cmap_from_setpoints(cmap_dict["name"],cmap_dict["setpoints"])
+    return cmap_dict
+
+
 #%% dashed line in image
 
 def draw_dashed_line(img,start_point,end_point,color,thickness=1,segment_length=15,gap_length=10):
