@@ -23,6 +23,7 @@ setup(name='microscopy_data_analysis',
             'h5py',
             'scikit-image',
             'pandas',
+            'ipywidgets',
             'jinja2',
             'ncempy', ######### not so standard
             'sphinx-rtd-theme',
