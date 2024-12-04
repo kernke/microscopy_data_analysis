@@ -25,7 +25,7 @@ from matplotlib.ticker import MultipleLocator
 import matplotlib as mpl
 import ipywidgets
 import json
-#from IPython import display
+from IPython.display import display
 
 
 def _cmap_from_setpoints(cmapname,setpoints):
