@@ -72,7 +72,7 @@ def img_gammaCorrection(img, gamma):
     return cv2.LUT(img, table)
 
 #%% format image dtypes
-def img_to_uint8(img,imgmax=255):
+def img_to_uint8(img,newmax=255,imgmin=None):
     """
     transform contrast range to unsigned integer 8bit
 
@@ -80,20 +80,28 @@ def img_to_uint8(img,imgmax=255):
         img (MxN array_like): 
             input image.
         
-        imgmax (int, optional): 
+        newmax (int, optional): 
             optionally reduce contrast range, 
             by setting a lower, than datatype given, threshold to the maximum value. 
             Defaults to 255.
+        imgmin (int, optional): 
+            optionally set the lower limit, 
+            of the original image contrast, 
+            imgmin=0 preserves the original relative contrast range offset
+            imgmin=None sets the contrast range offset to 0
+            Defaults to None.
 
     Returns:
         datatype_conform_image (MxN array_like): 
             np.uint8.
 
     """
-    img -= np.min(img)
-    return (img / np.max(img) * (imgmax+0.5)).astype(np.uint8)
+    if imgmin is None:
+        imgmin = np.min(img)
+    newimg = img - imgmin
+    return (newimg / np.max(newimg) * (newmax+0.5)).astype(np.uint8)
 
-def img_to_uint16(img,imgmax=65535):
+def img_to_uint16(img,newmax=65535,imgmin=None):
     """
     transform contrast range to unsigned integer 16bit
 
@@ -101,20 +109,29 @@ def img_to_uint16(img,imgmax=65535):
         img (MxN array_like): 
             input image.
         
-        imgmax (int, optional): 
+        newmax (int, optional): 
             optionally reduce contrast range, 
             by setting a lower, than datatype given, threshold to the maximum value. 
             Defaults to 65535.
+            
+        imgmin (int, optional): 
+            optionally set the lower limit, 
+            of the original image contrast, 
+            imgmin=0 preserves the original relative contrast range offset
+            imgmin=None sets the contrast range offset to 0
+            Defaults to None.
 
     Returns:
         datatype_conform_image (MxN array_like): 
             np.uint16.
 
     """
-    img -= np.min(img)
-    return (img / np.max(img) * (imgmax+0.5)).astype(np.uint16)
+    if imgmin is None:
+        imgmin = np.min(img)
+    newimg = img - imgmin
+    return (newimg / np.max(newimg) * (newmax+0.5)).astype(np.uint16)
 
-def img_to_int8(img,imgmax=127):
+def img_to_int8(img,newmax=127,imgmin=None):
     """
     transform contrast range to signed integer 8bit
 
@@ -122,21 +139,30 @@ def img_to_int8(img,imgmax=127):
         img (MxN array_like): 
             input image.
         
-        imgmax (int, optional): 
+        newmax (int, optional): 
             optionally reduce contrast range, 
             by setting a lower, than datatype given, threshold to the maximum value. 
             Defaults to 127.
+            
+        imgmin (int, optional): 
+            optionally set the lower limit, 
+            of the original image contrast, 
+            imgmin=0 preserves the original relative contrast range offset
+            imgmin=None sets the contrast range offset to 0
+            Defaults to None.
 
     Returns:
         datatype_conform_image (MxN array_like): 
             np.int8.
 
     """
-    imgmax+=128
-    img -= np.min(img)
-    return (img / np.max(img) * (imgmax+0.5) -128).astype(np.int8)
+    newmax+=128
+    if imgmin is None:
+        imgmin = np.min(img)
+    newimg = img - imgmin
+    return (newimg / np.max(newimg) * (newmax+0.5) -128).astype(np.int8)
 
-def img_to_int16(img,imgmax=32767):
+def img_to_int16(img,newmax=32767,imgmin=None):
     """
     transform contrast range to signed integer 16bit
 
@@ -144,19 +170,28 @@ def img_to_int16(img,imgmax=32767):
         img (MxN array_like): 
             input image.
         
-        imgmax (int, optional): 
+        newmax (int, optional): 
             optionally reduce contrast range, 
             by setting a lower, than datatype given, threshold to the maximum value. 
             Defaults to 32767.
+            
+        imgmin (int, optional): 
+            optionally set the lower limit, 
+            of the original image contrast, 
+            imgmin=0 preserves the original relative contrast range offset
+            imgmin=None sets the contrast range offset to 0
+            Defaults to None.
 
     Returns:
         datatype_conform_image (MxN array_like): 
             np.int16.
 
     """
-    imgmax+=32768
-    img -= np.min(img)
-    return (img / np.max(img) * (imgmax+0.5) -32768).astype(np.int16)
+    newmax+=32768
+    if imgmin is None:
+        imgmin = np.min(img)
+    newimg = img-imgmin
+    return (newimg / np.max(newimg) * (newmax+0.5) -32768).astype(np.int16)
 
 
 def img_to_half_int8(img):
@@ -194,6 +229,38 @@ def img_to_half_int16(img):
     img -= np.min(img)
     return (img / np.max(img) * 16383.5-16384).astype(np.int16)
 
+
+def img_gray_to_rgba(img):
+    """
+    transform grayscale (uint8) to rgba (uint8) image
+
+    Args:
+        img (TYPE): DESCRIPTION.
+
+    Returns:
+        rgba_img (TYPE): DESCRIPTION.
+
+    """
+    rgba_img=np.dstack((img,img,img,np.zeros(img.shape,dtype=np.uint8)+255))
+    return rgba_img
+
+def img_add_weighted_rgba(img1,img2):
+    newimg1=np.copy(img1)
+    newimg2=np.copy(img2)
+    totalalpha= np.zeros(img1.shape[:2],dtype=np.uint16)
+    totalalpha+=img1[:,:,3]
+    totalalpha+=img2[:,:,3]
+    totalalpha[totalalpha==0]=1
+    alpha1=img1[:,:,3]/totalalpha
+    alpha2=img2[:,:,3]/totalalpha
+    
+    for i in range(3):
+        newimg1[:,:,i] = alpha1*newimg1[:,:,i]
+        newimg2[:,:,i] = alpha2*newimg2[:,:,i]
+    newimg1[:,:,3] = alpha1 * 255.5
+    newimg2[:,:,3] = alpha2 * 255.5
+    
+    return cv2.add(newimg1,newimg2)
 
 #%% noise_line_suppression
 

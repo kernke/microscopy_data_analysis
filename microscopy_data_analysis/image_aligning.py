@@ -1261,11 +1261,20 @@ def align_images(im1s, im2, p1s, p2, verbose=False):
     height_shift = np.abs(np.min(allheights))
     shift = np.array([width_shift, height_shift])
 
-    img2Reg = np.zeros([resheight, reswidth])
-    img2Reg[
-        height_shift : height_shift + im2.shape[0],
-        width_shift : width_shift + im2.shape[1],
-    ] = im2
+    if len(im2.shape)>2: 
+        img2Reg = np.zeros([resheight, reswidth,im2.shape[2]])
+        img2Reg[
+            height_shift : height_shift + im2.shape[0],
+            width_shift : width_shift + im2.shape[1],
+        ] = im2
+
+    else:
+        
+        img2Reg = np.zeros([resheight, reswidth])
+        img2Reg[
+            height_shift : height_shift + im2.shape[0],
+            width_shift : width_shift + im2.shape[1],
+        ] = im2
 
     im1res = []
 
