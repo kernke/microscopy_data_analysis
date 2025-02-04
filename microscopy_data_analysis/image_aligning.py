@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from copy import deepcopy
 from .general_util import peak_com2d
 from .image_processing import img_periodic_tiling,img_to_uint16,img_to_half_int16
-
+from .image_processing import img_add_weighted_rgba,img_gray_to_rgba
 
 #%% phase_correlation
 def phase_correlation(a, b):
@@ -520,6 +520,145 @@ def _pos_from_pcm(pcm, overlap_limits, mode, tolerance, imdim, rdrift, cdrift):
 
 #%% relative_stitching_positions
 def relative_stitching_positions(
+    images,
+    tile_dimensions,
+    overlap_rows_cols=[0.25, 0.25],
+    tolerance=0.1,
+    ignore_montage_edges=0,
+    drifts=[[0, 0], [0, 0]],
+    blur=0,
+):
+    # images: list of images as a series of rows from top to bottom and within the row from left to right
+    # tile_dimensions: tuple consisting of first number of rows and second number of columns
+    # overlap: tuple of values between 0.0 and 1.0 indicating the expected relative overlap of pictures
+    # tolerance: relative allowed deviation from the expected overlap
+    # note: all images should have the same resolution
+
+    imdim = images[0].shape
+    overlap_limits = np.zeros([2, 2])
+    overlap_limits[0, 0] = imdim[0] * (overlap_rows_cols[0] - tolerance)
+    overlap_limits[0, 1] = imdim[0] * (overlap_rows_cols[0] + tolerance)
+    overlap_limits[1, 0] = imdim[1] * (overlap_rows_cols[1] - tolerance)
+    overlap_limits[1, 1] = imdim[1] * (overlap_rows_cols[1] + tolerance)
+
+    mask_edgeright = np.ones(imdim)
+    mask_edgeup = np.ones(imdim)
+    if ignore_montage_edges != 0:
+        mask_edgeright[:, -int(ignore_montage_edges * imdim[1]) :] = 0
+        mask_edgeup[: int(ignore_montage_edges * imdim[0]), :] = 0
+
+    # mask areas far from the overlap, to ensure that even if the side opposite to the stitching edge
+    # looks similar, the stitching happens on the right side of the image
+    maskleft = np.ones(imdim)
+    maskright = np.ones(imdim)
+    maskup = np.ones(imdim)
+    maskdown = np.ones(imdim)
+    maskup[: int(imdim[0] - 2 * overlap_rows_cols[0] * imdim[0]), :] = 0
+    maskdown[int(2 * overlap_rows_cols[0] * imdim[0]) :, :] = 0
+    maskleft[:, : int(imdim[1] - 2 * overlap_rows_cols[1] * imdim[1])] = 0
+    maskright[:, int(2 * overlap_rows_cols[1] * imdim[1]) :] = 0
+
+    positions = np.zeros(
+        [
+            tile_dimensions[0] * tile_dimensions[1],
+            tile_dimensions[0] * tile_dimensions[1],
+            2,
+        ]
+    )
+    pos_pcms = np.zeros(
+        [
+            tile_dimensions[0] * tile_dimensions[1],
+            tile_dimensions[0] * tile_dimensions[1],
+        ]
+    )
+    neighbours = []
+    # loop checks for each image the relative position of its right and bottom neighour
+    # via the maximum of the phase-correlation-matrix (PCM)
+    for i in range(len(images) - 1):
+        neighbours.append([])
+        if (i + 1) % tile_dimensions[1] == 0:  # no right neighbour at the end of a row
+            # if i%tile_dimensions[1]==0:
+            if (
+                i < (tile_dimensions[0] - 1) * tile_dimensions[1]
+            ):  # no bottom neighbours in the last row
+                j = i + tile_dimensions[1]  # j is the image below
+                if j < len(images):
+                    neighbours[i].append(j)
+                    pcm = phase_correlation(
+                        images[i] * maskup * mask_edgeright,
+                        images[j] * maskdown * mask_edgeright,
+                    )
+                    if blur != 0:
+                        pcm = cv2.blur(pcm, (blur, blur))
+                    dist0, dist1, pcms = _pos_from_pcm(
+                        pcm,
+                        overlap_limits,
+                        "vertical",
+                        tolerance,
+                        imdim,
+                        drifts[1][0],
+                        drifts[1][1],
+                    )
+                    positions[i, j] = dist0, dist1
+                    positions[j, i] = dist0, dist1
+                    pos_pcms[i, j] = pcms
+                    pos_pcms[j, i] = pcms
+
+        else:
+            j = i + 1  # j is the image right
+            if j < len(images):
+                neighbours[i].append(j)
+                if i < tile_dimensions[1]:
+                    pcm = phase_correlation(
+                        images[i] * maskleft * mask_edgeup,
+                        images[j] * maskright * mask_edgeup,
+                    )
+                    if blur != 0:
+                        pcm = cv2.blur(pcm, (blur, blur))
+                else:
+                    pcm = phase_correlation(images[i] * maskleft, images[j] * maskright)
+                    if blur != 0:
+                        pcm = cv2.blur(pcm, (blur, blur))
+                dist0, dist1, pcms = _pos_from_pcm(
+                    pcm,
+                    overlap_limits,
+                    "horizontal",
+                    tolerance,
+                    imdim,
+                    drifts[0][0],
+                    drifts[0][1],
+                )
+                positions[i, j] = dist0, dist1
+                positions[j, i] = dist0, dist1
+                pos_pcms[i, j] = pcms
+                pos_pcms[j, i] = pcms
+
+            if i < (tile_dimensions[0] - 1) * tile_dimensions[1]:
+                j = i + tile_dimensions[1]  # j is the image below
+                if j < len(images):
+                    neighbours[i].append(j)
+                    pcm = phase_correlation(images[i] * maskup, images[j] * maskdown)
+                    if blur != 0:
+                        pcm = cv2.blur(pcm, (blur, blur))
+
+                    dist0, dist1, pcms = _pos_from_pcm(
+                        pcm,
+                        overlap_limits,
+                        "vertical",
+                        tolerance,
+                        imdim,
+                        drifts[1][0],
+                        drifts[1][1],
+                    )
+                    positions[i, j] = dist0, dist1
+                    positions[j, i] = dist0, dist1
+                    pos_pcms[i, j] = pcms
+                    pos_pcms[j, i] = pcms
+
+    return positions, neighbours, pos_pcms
+
+#%% relative_stitching_positions
+def relative_stitching_sift(
     images,
     tile_dimensions,
     overlap_rows_cols=[0.25, 0.25],
@@ -1262,7 +1401,7 @@ def align_images(im1s, im2, p1s, p2, verbose=False):
     shift = np.array([width_shift, height_shift])
 
     if len(im2.shape)>2: 
-        img2Reg = np.zeros([resheight, reswidth,im2.shape[2]])
+        img2Reg = np.zeros([resheight, reswidth,im2.shape[2]],dtype=np.uint8)
         img2Reg[
             height_shift : height_shift + im2.shape[0],
             width_shift : width_shift + im2.shape[1],
@@ -1270,7 +1409,7 @@ def align_images(im1s, im2, p1s, p2, verbose=False):
 
     else:
         
-        img2Reg = np.zeros([resheight, reswidth])
+        img2Reg = np.zeros([resheight, reswidth],dtype=np.uint8)
         img2Reg[
             height_shift : height_shift + im2.shape[0],
             width_shift : width_shift + im2.shape[1],
@@ -1304,16 +1443,228 @@ def align_images(im1s, im2, p1s, p2, verbose=False):
             return im1res, img2Reg, matrices, reswidth, resheight, width_shift, height_shift
         else:
             return im1res, img2Reg
+
+
+
+def align_pair(im1, im2, p1, p2, verbose=False):
+    
+    allwidths = []
+    allheights = []
+
+    matrix = cv2.estimateAffinePartial2D(p2, p1)[0]
+
+    scale=np.sqrt(matrix[0,0]**2+matrix[0,1]**2)
+    rotation = np.degrees(np.arctan2(-matrix[0,1], matrix[0,0]))
+    translation = matrix[:,2]#[::-1]
+    
+    
+    xf=[0,im2.shape[1],im2.shape[1],0]
+    yf=[0,0,im2.shape[0],im2.shape[0]]
+    
+    img_matrix = np.stack([xf, yf, np.ones(len(xf))])
+    
+    res = np.tensordot(matrix, img_matrix, axes=1)
+    
+    # consider the scaling of the border pixels
+    extra=np.abs(scale-1)
+
+    im1shift=np.zeros(2,dtype=int)
+    resmin=np.min(res,axis=-1)-extra
+    resmax=np.max(res,axis=-1)
+    if True in (res[0]<0):
+        matrix[0,2]-=resmin[0]
+        im1shift[1]=-np.round(resmin[0])
         
+    if True in (res[1]<0):
+        matrix[1,2]-=(resmin[1])
+        im1shift[0]=-np.round(resmin[1])
+
+    allwidths.append( min(resmin[0], 0))
+    allheights.append(min(resmin[1], 0))
+
+    allwidths.append(max(resmax[0], im1.shape[1]) - allwidths[-1])
+    allheights.append(max(resmax[1], im1.shape[0]) - allheights[-1])
+
+    reswidth = np.round(np.max(allwidths)).astype(int)
+    resheight = np.round(np.max(allheights)).astype(int)
+    
+    if len(im1.shape)>2: 
+        im1orig = np.zeros([resheight, reswidth,im1.shape[2]],dtype=im1.dtype)
+        im1orig[
+            im1shift[0] : im1shift[0] + im1.shape[0],
+            im1shift[1] : im1shift[1] + im1.shape[1],
+        ] = im1
+
+    else:
+        
+        im1orig = np.zeros([resheight, reswidth],dtype=im1.dtype)
+        im1orig[
+            im1shift[0] : im1shift[0] + im1.shape[0],
+            im1shift[1] : im1shift[1] + im1.shape[1],
+        ] = im1
+    
+    if scale>0.95:
+        interpolation=cv2.INTER_CUBIC
+    else:
+        interpolation=cv2.INTER_AREA
+        
+    im2transformed = cv2.warpAffine(im2,matrix,(reswidth,resheight), flags=interpolation)
+    
+    if verbose:
+        params=dict()
+        params["translation"]=translation
+        params["rotation"]=rotation
+        params["scale"]=scale
+        params["im1shift"]=im1shift
+        return im1orig,im2transformed,params
+    else:
+        return im1orig,im2transformed
+
+
+def align_pair_special(im1, im2, p1, p2,relative_scale_limit=None,translation_only=False):
+    
+    allwidths = []
+    allheights = []
+
+    matrix = cv2.estimateAffinePartial2D(p2, p1)[0]
+    if matrix is None:
+        print("could not estimate")
+        return None,None
+    if translation_only:
+        matrix[0,0]=1
+        matrix[1,1]=1
+        matrix[0,1]=0
+        matrix[1,0]=0
+    
+    
+    scale=np.sqrt(matrix[0,0]**2+matrix[0,1]**2)
+    if relative_scale_limit is not None:
+        if np.abs(1-scale)>relative_scale_limit:
+            return None,None
+    rotation = np.degrees(np.arctan2(-matrix[0,1], matrix[0,0]))
+    translation = matrix[:,2]#[::-1]
+    
+    
+    xf=[0,im2.shape[1],im2.shape[1],0]
+    yf=[0,0,im2.shape[0],im2.shape[0]]
+    
+    img_matrix = np.stack([xf, yf, np.ones(len(xf))])
+    
+    res = np.tensordot(matrix, img_matrix, axes=1)
+    
+    # consider the scaling of the border pixels
+    extra=np.abs(scale-1)
+
+    im1shift=np.zeros(2,dtype=int)
+    resmin=np.min(res,axis=-1)-extra
+    resmax=np.max(res,axis=-1)
+    if True in (res[0]<0):
+        matrix[0,2]-=resmin[0]
+        im1shift[1]=-np.round(resmin[0])
+        
+    if True in (res[1]<0):
+        matrix[1,2]-=(resmin[1])
+        im1shift[0]=-np.round(resmin[1])
+
+    allwidths.append( min(resmin[0], 0))
+    allheights.append(min(resmin[1], 0))
+
+    allwidths.append(max(resmax[0], im1.shape[1]) - allwidths[-1])
+    allheights.append(max(resmax[1], im1.shape[0]) - allheights[-1])
+
+    reswidth = np.round(np.max(allwidths)).astype(int)
+    resheight = np.round(np.max(allheights)).astype(int)
+    
+    
+    if scale>0.95:
+        interpolation=cv2.INTER_CUBIC
+    else:
+        interpolation=cv2.INTER_AREA
+        
+    im2transformed = cv2.warpAffine(im2,matrix,(reswidth,resheight), flags=interpolation)
+    
+
+    params=dict()
+    params["translation"]=translation
+    params["rotation"]=rotation
+    params["scale"]=scale
+    params["im1shift"]=im1shift
+    return im2transformed,params
+
+
+
+
+
+
+def stitch_pair(im1,im2,verbose=False):
+    """
+    only works with uint8
+
+    Args:
+        im1 (TYPE): DESCRIPTION.
+        im2 (TYPE): DESCRIPTION.
+        verbose (TYPE, optional): DESCRIPTION. Defaults to False.
+
+    Returns:
+        TYPE: DESCRIPTION.
+
+    """
+    if len(im1.shape)==2:
+        im1=img_gray_to_rgba(im1)
+        
+    if len(im2.shape)==2:
+        im2=img_gray_to_rgba(im2)
+            
+    pts1,pts2 = sift_align_matches(im1, im2)
+    if verbose:
+        im1orig,im2transformed,params = align_pair(im1, im2, pts1, pts2,verbose=True)
+        stitched=img_add_weighted_rgba(im1orig, im2transformed)
+        return stitched,params
+    else:
+        im1orig,im2transformed = align_pair(im1, im2, pts1, pts2)
+        stitched=img_add_weighted_rgba(im1orig, im2transformed)
+        return stitched
+    
 #%% sift align matches
-def sift_align_matches(img1,img2,ratio_threshold=0.5):
+def sift_align_matches(img1,img2,ratio_threshold=0.5,verbose=False):
+    """
+    only works with uint8 -dtype
+
+    Args:
+        img1 (TYPE): DESCRIPTION.
+        img2 (TYPE): DESCRIPTION.
+        ratio_threshold (TYPE, optional): DESCRIPTION. Defaults to 0.5.
+
+    Returns:
+        Matched (TYPE): DESCRIPTION.
+        ptsA (TYPE): DESCRIPTION.
+        ptsB (TYPE): DESCRIPTION.
+
+    """
+
     sift = cv2.SIFT_create()
 
     kp1, des1 = sift.detectAndCompute(img1,None)
     kp2, des2 = sift.detectAndCompute(img2,None)
 
     #img=cv2.drawKeypoints(img1,kp,img1)
+    """
+    # FLANN parameters
+    FLANN_INDEX_KDTREE = 1
+    index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
+    search_params = dict(checks=50)   # or pass empty dictionary
+    flann = cv2.FlannBasedMatcher(index_params,search_params)
+    matches = flann.knnMatch(des1,des2,k=2)
+    # Need to draw only good matches, so create a mask
+    #good_matches = [[0,0] for i in range(len(matches))]
+    good=[]
+    # ratio test as per Lowe's paper
+    for i,(m,n) in enumerate(matches):
+        if m.distance < 0.7*n.distance:
+            #good_matches[i]=[1,0]
+            good.append(m)
     
+    """
     #Initialize the BFMatcher for matching 
     BFMatch = cv2.BFMatcher() 
     Matches = BFMatch.knnMatch(des1,des2,k=2) 
@@ -1328,7 +1679,7 @@ def sift_align_matches(img1,img2,ratio_threshold=0.5):
         if m.distance < ratio_threshold*n.distance: 
             good_matches[i]=[1,0] 
             good.append(m)
-
+    
     ptsA = np.zeros((len(good), 2), dtype="float")
     ptsB = np.zeros((len(good), 2), dtype="float")
     
@@ -1337,20 +1688,23 @@ def sift_align_matches(img1,img2,ratio_threshold=0.5):
         ptsA[i]= (kp1[m.queryIdx].pt[0],kp1[m.queryIdx].pt[1])
         ptsB[i]= (kp2[m.trainIdx].pt[0],kp2[m.trainIdx].pt[1])
 
-              
-    # Draw the matches using drawMatchesKnn() 
-    Matched = cv2.drawMatchesKnn(img1,       
-                                 kp1,    
-                                 img2, 
-                                 kp2, 
-                                 Matches, 
-                                 outImg = None, 
-                                 matchColor = (0,0,255),   
-                                 singlePointColor = (0,255,255), 
-                                 matchesMask = good_matches, 
-                                 flags = 0
-                                ) 
-    return Matched,ptsA,ptsB
+    if verbose:
+        # Draw the matches using drawMatchesKnn() 
+        Matched = cv2.drawMatchesKnn(img1,       
+                                     kp1,    
+                                     img2, 
+                                     kp2, 
+                                     Matches, 
+                                     outImg = None, 
+                                     matchColor = (0,0,255),   
+                                     singlePointColor = (0,255,255), 
+                                     matchesMask = good_matches, 
+                                     flags = 0
+                                    )
+        return Matched,ptsA,ptsB
+    else:
+        return ptsA,ptsB
+    
 
 #%% stack_sift_align
 def stack_sift_align_to_first(stack,ratio=0.5,verbose=False):

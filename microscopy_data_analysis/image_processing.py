@@ -8,6 +8,7 @@ import numpy as np
 from skimage import  exposure
 import copy
 from numba import njit
+from numba import prange
 
 #%% autoclipping
 def img_autoclip(img,ratio=0.001):
@@ -100,6 +101,24 @@ def img_to_uint8(img,newmax=255,imgmin=None):
         imgmin = np.min(img)
     newimg = img - imgmin
     return (newimg / np.max(newimg) * (newmax+0.5)).astype(np.uint8)
+
+
+def img_to_uint8_fast(img):
+    newimg=np.empty(img.shape,dtype=np.uint8)
+    img_to_uint8_numba(img, newimg)
+    return newimg
+
+@njit(parallel=True)
+def img_to_uint8_numba(img,newimg):
+    N0,N1=img.shape
+    imgmin=np.min(img)
+    imgmax=np.max(img)-imgmin
+    for i in prange(N0):
+        for j in range(N1):
+            newimg[i,j]=(img[i,j]-imgmin)/imgmax *255.5
+    
+    
+
 
 def img_to_uint16(img,newmax=65535,imgmin=None):
     """
@@ -243,6 +262,59 @@ def img_gray_to_rgba(img):
     """
     rgba_img=np.dstack((img,img,img,np.zeros(img.shape,dtype=np.uint8)+255))
     return rgba_img
+
+def img_single_to_double_channel(img):
+    #gray_alpha
+    if len(img.shape)==3:
+        return img
+    else:
+        return np.dstack((img,np.zeros(img.shape,dtype=np.uint8)+255))
+
+def img_add_weighted_gray_alpha(img1,img2):
+    newimg=np.empty(img1.shape,dtype=np.uint8)
+    img_add_weighted_gray_alpha_numba(img1,img2,newimg)
+    
+    #totalalpha= np.zeros(img1.shape[:2],dtype=np.uint16)
+    #totalalpha+=img1[:,:,1]
+    #totalalpha+=img2[:,:,1]
+    #totalalpha[totalalpha==0]=1
+    #alpha1=img1[:,:,1]/totalalpha
+    #alpha2=img2[:,:,1]/totalalpha
+    
+    #newimg[:,:,0] = alpha1*img1[:,:,0]+alpha2*img2[:,:,0]
+    #newimg[:,:,1] = (alpha1+alpha2) * 255.5
+    
+    return newimg
+
+
+@njit(parallel=True)
+def img_add_weighted_gray_alpha_numba(img1,img2,newimg):
+    N0=img1.shape[0]
+    N1=img1.shape[1]
+    for i in prange(N0):
+        for j in range(N1):
+            totalalpha=img1[i,j,1]+img2[i,j,1]
+            if totalalpha ==0:
+                totalalpha=1
+            alpha1=img1[i,j,1]/totalalpha
+            alpha2=img2[i,j,1]/totalalpha
+            
+            newimg[i,j,0]=alpha1*img1[i,j,0]+alpha2*img2[i,j,0]
+            newimg[i,j,1]=(img1[i,j,1]+img2[i,j,1])/2#(alpha1+alpha2)*255.5
+            
+            
+    #totalalpha= numba.uint16[:,:]#np.zeros(img1.shape[:2],dtype=np.uint16)
+    #totalalpha+=img1[:,:,1]
+    #totalalpha+=img2[:,:,1]
+    #totalalpha[totalalpha==0]=1
+    #alpha1=img1[:,:,1]/totalalpha
+    #alpha2=img2[:,:,1]/totalalpha
+    
+    #newimg[:,:,0] = alpha1*img1[:,:,0]+alpha2*img2[:,:,0]
+    #newimg[:,:,1] = (alpha1+alpha2) * 255.5
+    
+    #return newimg
+
 
 def img_add_weighted_rgba(img1,img2):
     newimg1=np.copy(img1)

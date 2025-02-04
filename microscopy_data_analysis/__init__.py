@@ -13,3 +13,4 @@ from .visualisation import *
 from .peak_fitting import *
 from .deprecated import *
 from .data_formats_io import *
+from .stitching import *
