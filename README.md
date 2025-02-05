@@ -15,6 +15,7 @@ Main features are:
 # Installation
 After changing into the directory containing setup.py , install via 
 
+    pip install -r /docs/requirements.txt
     pip install .  
 
 

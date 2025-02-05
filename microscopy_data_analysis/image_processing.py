@@ -118,6 +118,26 @@ def img_to_uint8_numba(img,newimg):
             newimg[i,j]=(img[i,j]-imgmin)/imgmax *255.5
     
     
+def img_normalize(img):
+    #if imgmin is None:
+    imgmin = np.min(img)
+    newimg = img - imgmin
+    return newimg / np.max(newimg)
+    
+def img_normalize_fast(img):
+    newimg=np.empty(img.shape,dtype=np.float32)
+    img_normalize_numba(img, newimg)
+    return newimg
+
+@njit(parallel=True)
+def img_normalize_numba(img,newimg):
+    N0,N1=img.shape
+    imgmin=np.min(img)
+    imgmax=np.max(img)-imgmin
+    for i in prange(N0):
+        for j in range(N1):
+            newimg[i,j]=(img[i,j]-imgmin)/imgmax
+
 
 
 def img_to_uint16(img,newmax=65535,imgmin=None):

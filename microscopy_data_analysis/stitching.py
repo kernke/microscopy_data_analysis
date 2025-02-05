@@ -55,7 +55,6 @@ def pixel_to_real_relation(im1,im2,pos1,pos2,check=True):
     realdist=np.sqrt(np.sum(realshift*realshift))
     pixshift=params["translation"]
     pixdist=np.sqrt(np.sum(pixshift*pixshift))
-    #rotscale=np.zeros([2,2])
     units_per_pixel=realdist/pixdist
     deltarad=np.arctan2(pixshift[1],-pixshift[0])-np.arctan2(realshift[1],realshift[0])
     deltadeg=np.degrees(deltarad)
@@ -355,7 +354,7 @@ def stitch_by_overlap_no_copy(im1,im2,index1,index2,metadata,level_lowe=0.5,rota
     im2_cropdim=upper2-lower2
     
     dimdiff=im2_cropdim-im1_cropdim
-    if np.sum(dimdiff>0):
+    if np.sum(np.abs(dimdiff)>0):
         print("dimdiff>0 some rounding")
     if  dimdiff[0]<0:
         lower1[0]+=1
@@ -368,6 +367,9 @@ def stitch_by_overlap_no_copy(im1,im2,index1,index2,metadata,level_lowe=0.5,rota
         lower2[1]+=1
 
     cropdim=upper2-lower2
+    
+    #print(im1_cropdim)
+    #print(cropdim)
     im2_cropped=np.zeros([cropdim[0],cropdim[1],2],dtype=np.uint8)
     
     offs2=np.zeros(2,dtype=int)
@@ -389,6 +391,7 @@ def stitch_by_overlap_no_copy(im1,im2,index1,index2,metadata,level_lowe=0.5,rota
     if upper2[1]>metadata[index2]["dimensions"][1]:
         ucpd[1]+=(metadata[index2]["dimensions"][1]-upper2[1])
 
+    #print("im2")
     #print(offs2[0],ucpd[0],offs2[1],ucpd[1])  
     #print(l2[0],upper2[0],l2[1],upper2[1])
     im2_cropped[offs2[0]:ucpd[0],offs2[1]:ucpd[1],:]=im2[l2[0]:upper2[0],l2[1]:upper2[1],:]
@@ -400,9 +403,14 @@ def stitch_by_overlap_no_copy(im1,im2,index1,index2,metadata,level_lowe=0.5,rota
     #    lower2[1]=max(0,lower2[1]-overlap_pad)
     #    upper2=np.max(im2_coord,axis=0) +overlap_pad  
      #   im2_cropped=im2[lower2[0]:upper2[0],lower2[1]:upper2[1],:]
-
+    #print("im1")
+    #print(lower1)
+    #print(upper1)
     im1_cropped=im1[lower1[0]:upper1[0],lower1[1]:upper1[1],:]
-
+    if im1_cropped.shape[0]!=im2_cropped.shape[0] or im1_cropped.shape[1]!=im2_cropped.shape[1]:
+        print("--------------------------------------------------------------------")
+        print("pad image1 before (phase_correlation)")
+        return None,None,None
     #plt.imshow(im1_cropped[:,:,0])
     #plt.show()
     #plt.imshow(im2_cropped[:,:,0])
@@ -430,7 +438,7 @@ def stitch_by_overlap_no_copy(im1,im2,index1,index2,metadata,level_lowe=0.5,rota
         #plt.show()
 
         transl2,certainty=close_translation_by_phase_correlation(im1_cropped[:,:,0],im2_cropped[:,:,0])
-        print(transl2)
+        #print(transl2)
         #transl,err,phasediff=phase_cross_correlation(im1_cropped[:,:,0],im2_cropped[:,:,0])#[0]
         transl=phase_cross_correlation(im1_cropped[:,:,0],im2_cropped[:,:,0],
                                        reference_mask=im1_cropped[:,:,1]>1, 
@@ -438,7 +446,7 @@ def stitch_by_overlap_no_copy(im1,im2,index1,index2,metadata,level_lowe=0.5,rota
                                        disambiguate=True)[0]
         
         #transl=transl#.astype(int)
-        print(transl)
+        print(transl,certainty)
         if certainty <minimal_correlation_sigma:
             print("no good phase correlation found       sorted out ")
             return None,None,None
@@ -519,12 +527,12 @@ def stitch_by_overlap_no_copy(im1,im2,index1,index2,metadata,level_lowe=0.5,rota
     if num>2:
         print("more than two")
         print(num)
-        plt.imshow(im1[:,:,1])
-        plt.show()
+        #plt.imshow(im1[:,:,1])
+        #plt.show()
         im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],:]=imog
 
-        plt.imshow(im1[:,:,1])
-        plt.show()
+        #plt.imshow(im1[:,:,1])
+        #plt.show()
         #a=5/0
         return None,None,None
 
