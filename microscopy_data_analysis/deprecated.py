@@ -9,7 +9,84 @@ import matplotlib.pyplot as plt
 import cv2
 from scipy import ndimage
 from scipy.spatial.distance import cdist
+from scipy.integrate import quad
 
+#%%
+def split_function_into_equal_area_parts(func,number_of_parts,prec=10**-6,limits=[-np.inf,np.inf],
+                                            printing=False,max_iterations=1000):
+    """calculate the split positions to divide a function into equal area parts, best suited for smooth functions
+    """
+    total_area_first,error=quad(func,limits[0],limits[1]) #get total area
+    quad_abs_prec=0.5*prec /number_of_parts#*total_area_first/ #determine absolute precision for integration
+    adj_func=lambda x: func(x)/total_area_first
+    total_area,error=quad(adj_func,limits[0],limits[1],epsabs=quad_abs_prec)
+
+    desired_area=total_area/number_of_parts
+    if printing:
+        print(quad_abs_prec)
+        print(error)
+        print(total_area)
+        print(desired_area)        
+        
+    tolerance_area=prec*desired_area
+
+    areas=[]
+    cuts=[]
+    lower_cut,lower_area=find_next_cut(adj_func,limits[0],desired_area,tolerance_area,quad_abs_prec,max_iterations)    
+
+    cuts.append(lower_cut)
+    areas.append(lower_area)
+    start_step_size=1
+    for i in range(number_of_parts-2):
+        cut,area=find_next_cut(adj_func,cuts[-1],desired_area,tolerance_area,quad_abs_prec,max_iterations,step_size=start_step_size)
+        
+        areas.append(area)
+        cuts.append(cut)
+        start_step_size=cuts[-1]-cuts[-2]    
+        
+    remaining=quad(adj_func,cuts[-1],limits[1],epsabs=quad_abs_prec)[0]
+    areas.append(remaining)
+     
+    return cuts,areas
+
+def find_next_cut(func,firstcut,desired_area,tolerance_area,quad_abs_prec,
+                         max_iterations,step_size=1):
+    area_delta=2*tolerance_area
+
+    if firstcut==-np.inf:
+        estimated_cut_position=0
+    else:
+        estimated_cut_position=firstcut+step_size
+        
+    step_right_before=None
+    counter=0
+    while True:
+        estimated_area=quad(func,firstcut,estimated_cut_position,epsabs=quad_abs_prec)[0]        
+        
+        area_delta=desired_area-estimated_area
+        if np.abs(area_delta)<tolerance_area:
+            break
+                
+        if area_delta<0: # estimated > desired --> move left 
+            step_right=False
+            estimated_cut_position -= step_size            
+        else: # estimated < desired --> move right
+            step_right=True
+            estimated_cut_position += step_size
+
+        
+        if step_right==step_right_before: #no direction change
+            step_size *=2
+        else:
+            step_size *=0.5
+        step_right_before=step_right
+                
+        counter+=1
+        if counter>max_iterations:
+            print("maximum number of iterations reached")
+            break
+            
+    return estimated_cut_position,estimated_area
 
 #%% optimal rotation /deprecated
 # deprecated
