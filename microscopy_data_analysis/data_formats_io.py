@@ -372,27 +372,30 @@ def get_SEMtif_with_metadata(filepath):
         kw=i[0]
         start=text.find(kw)+len(kw)
         end=text[start:].find("\n")
-        if i[1]=="int":    
-            res.append(int(text[start:start+end]))
-        elif i[1]=="np.float64":
-            res.append(np.double(text[start:start+end]))
-        elif i[1]=="str" or i[1]=="string":
-            if text[start:start+end] in ["no","No","off","Off","false","False"]:
-                res.append(False)
-                typechanges.append(counter)
-            elif text[start:start+end] in ["yes","Yes","on","On","true","True"]:
-                res.append(True)
-                typechanges.append(counter)
-            elif ":" in text[start:start+end]:
-                datestring=text[start:start+end]
-                
-                datestring=datestring.replace("."," ")
-                day,month,year,hour=datestring.split(" ")
-                newdate=year+"-"+month+"-"+day+" "+hour
-                newdate +=".000Z"
-                res.append(newdate)
-            else:
-                res.append(text[start:start+end])
+        if end == 0 or start==-1 or kw not in text:
+            res.append(None)
+        else:
+            if i[1]=="int":    
+                res.append(int(text[start:start+end]))
+            elif i[1]=="np.float64":
+                res.append(np.double(text[start:start+end]))
+            elif i[1]=="str" or i[1]=="string":
+                if text[start:start+end] in ["no","No","off","Off","false","False"]:
+                    res.append(False)
+                    typechanges.append(counter)
+                elif text[start:start+end] in ["yes","Yes","on","On","true","True"]:
+                    res.append(True)
+                    typechanges.append(counter)
+                elif ":" in text[start:start+end]:
+                    datestring=text[start:start+end]
+                    
+                    datestring=datestring.replace("."," ")
+                    day,month,year,hour=datestring.split(" ")
+                    newdate=year+"-"+month+"-"+day+" "+hour
+                    newdate +=".000Z"
+                    res.append(newdate)
+                else:
+                    res.append(text[start:start+end])
         counter +=1
 
     for j in typechanges:

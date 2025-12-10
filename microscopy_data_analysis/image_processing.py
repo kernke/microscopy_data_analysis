@@ -320,7 +320,7 @@ def img_add_weighted_gray_alpha_numba(img1,img2,newimg):
             alpha2=img2[i,j,1]/totalalpha
             
             newimg[i,j,0]=alpha1*img1[i,j,0]+alpha2*img2[i,j,0]
-            newimg[i,j,1]=(img1[i,j,1]+img2[i,j,1])/2#(alpha1+alpha2)*255.5
+            newimg[i,j,1]=max(img1[i,j,1],img2[i,j,1])#(alpha1+alpha2)*255.5#(img1[i,j,1]+img2[i,j,1])/2#
             
             
     #totalalpha= numba.uint16[:,:]#np.zeros(img1.shape[:2],dtype=np.uint16)
