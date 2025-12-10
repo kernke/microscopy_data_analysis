@@ -73,7 +73,7 @@ def img_gammaCorrection(img, gamma):
     return cv2.LUT(img, table)
 
 #%% format image dtypes
-def img_to_uint8(img,newmax=255,imgmin=None):
+def img_to_uint8(img,newmax=255,imgmin=None,imgmax=None):
     """
     transform contrast range to unsigned integer 8bit
 
@@ -85,22 +85,31 @@ def img_to_uint8(img,newmax=255,imgmin=None):
             optionally reduce contrast range, 
             by setting a lower, than datatype given, threshold to the maximum value. 
             Defaults to 255.
-        imgmin (int, optional): 
+        imgmin (float, optional): 
             optionally set the lower limit, 
             of the original image contrast, 
             imgmin=0 preserves the original relative contrast range offset
             imgmin=None sets the contrast range offset to 0
             Defaults to None.
-
+        imgmax (float, optional): 
+            optionally set the upper limit 
+            of the original image contrast, 
+            imgmax=None uses the biggest occuring value of the image
+            Defaults to None.
+            
     Returns:
         datatype_conform_image (MxN array_like): 
             np.uint8.
 
     """
+    if imgmax is None:
+        imgmax = np.max(img)
     if imgmin is None:
         imgmin = np.min(img)
+        
     newimg = img - imgmin
-    return (newimg / np.max(newimg) * (newmax+0.5)).astype(np.uint8)
+    newimgmax=imgmax - imgmin
+    return ((newimg / newimgmax) * (newmax+0.5)).astype(np.uint8)
 
 
 def img_to_uint8_fast(img):
@@ -288,7 +297,7 @@ def img_single_to_double_channel(img):
     if len(img.shape)==3:
         return img
     else:
-        return np.dstack((img,np.zeros(img.shape,dtype=np.uint8)+255))
+        return np.dstack((img,np.ones(img.shape,dtype=img.dtype)))
 
 def img_add_weighted_gray_alpha(img1,img2):
     newimg=np.empty(img1.shape,dtype=np.uint8)
