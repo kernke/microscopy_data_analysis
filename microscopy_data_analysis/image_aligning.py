@@ -37,10 +37,10 @@ def phase_correlation(a, b):
     pb=padding_attenuation(pb,padval,mode="exponential",parameters={"lambda":4})
     G_a = np.fft.rfft2(pa)#np.pad(a,padval,mode="median"))
     G_b = np.fft.rfft2(pb)#np.pad(b,padval,mode="median"))
-    conj_b = np.ma.conjugate(G_b)
+    conj_b = np.conjugate(G_b)
     R = G_a * conj_b
     R /= np.absolute(R)
-    r = np.fft.irfft2(R).real
+    r = np.fft.irfft2(R)
     return r
 
 #%% plain phase correlation
@@ -63,10 +63,10 @@ def plain_phase_correlation(a, b):
     """
     G_a = np.fft.rfft2(a)
     G_b = np.fft.rfft2(b)
-    conj_b = np.ma.conjugate(G_b)
+    conj_b = np.conjugate(G_b)
     R = G_a * conj_b
     R /= np.absolute(R)
-    r = np.fft.irfft2(R).real
+    r = np.fft.irfft2(R)
     return r
 #%% phase_and cross_correlation
 def phase_and_cross_correlation(a, b):
@@ -99,11 +99,11 @@ def phase_and_cross_correlation(a, b):
     #G_b = np.fft.rfft2(np.pad(b,padval,mode="median"))
     G_a = np.fft.rfft2(pa)
     G_b = np.fft.rfft2(pb)
-    conj_b = np.ma.conjugate(G_b)
+    conj_b = np.conjugate(G_b)
     R = G_a * conj_b
     phaseR = R/np.absolute(R)
-    cross_r = np.fft.irfft2(R).real
-    phase_r = np.fft.irfft2(phaseR).real
+    cross_r = np.fft.irfft2(R)
+    phase_r = np.fft.irfft2(phaseR)
     return phase_r,cross_r
 
 #%% max_from_2d

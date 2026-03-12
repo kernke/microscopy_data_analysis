@@ -11,7 +11,7 @@ import pytest
 
 def pytest_configure():
     pytest.pattern = np.array([[5,8,3],[6,9,8]])
-    pytest.shape=np.array([32,35])
+    pytest.shape=np.array([32,36])
     pytest.shift=np.array([4,20])
 
     a=np.zeros(pytest.shape)    
