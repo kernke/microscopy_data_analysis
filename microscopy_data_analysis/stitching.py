@@ -1,1302 +1,582 @@
 # -*- coding: utf-8 -*-
-"""
-"""
 import numpy as np
-import cv2
-from .image_processing import img_gray_to_rgba,img_add_weighted_rgba,img_autoclip,img_to_uint8_fast
-from .image_processing import img_single_to_double_channel,img_add_weighted_gray_alpha,img_rebin_by_mean
-from .image_aligning import align_pair, sift_align_matches,phase_correlation,align_pair_special,max_from_2d
 import matplotlib.pyplot as plt
 import networkx as nx
+import cv2
+import h5py
 import shapely
-from skimage.registration import phase_cross_correlation
-import skimage
-#skimage.registration.phase_cross_correlation(btest1,btest2)
+import os
+import networkx as nx
+from scipy.optimize import least_squares
+import imagesize
 
-def make_polygons(positions,units_per_pixel,dimensions,scan_rotations=None):
-    #scan_rotation counterclockwise
-    N=len(positions)
-    anchor_points=np.zeros([N,2])
-    polygons=[]
-    if len(units_per_pixel.shape)==1:
-        units_per_pixel=np.stack((units_per_pixel,units_per_pixel),axis=1)
-    im_size=units_per_pixel*dimensions
+from .image_processing import img_to_uint8
+from .image_aligning import phase_correlation,max_from_2d
+
+
+class stitching_object:
+    def __init__(self,mode="memory",no_print=False):
+        """mode can either be 'memory' or 'storage'
+        "memory" is the default, assuming the image series being loaded into the RAM
+        "storage" is suitable for larger file sizes, when not all images simultaneously fit into the RAM"""
+        self.mode=mode
+        self.no_print=no_print
+        self.directory=None
+        if not no_print:
+            if mode == "storage":
+                print("For .h5 provide the path to the h5-file (that serves as h5-directory) via the 'set_directory_path' method")
+                print("For .tif, .png, ... image files either provide the folder via 'set_directory_path' or a list of filepaths via 'set_img_list'") 
+            if mode == "memory":
+                print("please provide the images, as a list of images via 'set_img_list'")
+                
+    def info(self):
+        print("General conditions: ")
+        print("All images of the series are assumed, to have no rotation and same pixel size.")
+        print("For background subtraction, additionally same dimensions (for example: 512x256,512x256,...) are required.")
+            
+    def set_directory_path(self,path_string):
+        self.directory=path_string
+        if path_string[-3:]==".h5":
+            self.h5_mode=True
+            print("please provide the h5 image file paths as a list via 'set_img_list' or use 'imgs_from_datacube'")
+        else:
+            print("please provide the image file-paths/names as a list via 'set_img_list'")
+            self.h5_mode=False
+
+    def imgs_from_datacube(self,dataset_name):
+        """images are assumed to be represented by the first index (for example: 16 x 1024 x 1024)"""
+        self.mode="h5_datacube"
+        self.dataset_name=dataset_name
+        with h5py.File(self.directory,'r') as h5:
+            datashape=h5[dataset_name].shape
+            self.img_list=np.arange(datashape[0])
+                    
+    def set_img_list(self,img_list):
+
+        if self.directory is None:
+            self.h5_mode=False
+            self.img_list=img_list
+        else:
+            self.img_list=img_list
+
     
-    if scan_rotations is not None:
-        side0comp=np.cos(np.radians(-scan_rotations))
-        side1comp=np.sin(np.radians(-scan_rotations))
-    else:
+    def get_img(self,index):
+        if self.mode=="memory":
+            img = self.img_list[index]
+        elif self.mode=="storage":
+            if self.h5_mode:
+                with h5py.File(self.directory,'r') as h5:
+                    img=h5[self.img_list[index]][()]
+            else:
+                img=cv2.imread(self.img_list[index],0)
+        elif self.mode=="h5_datacube":
+            with h5py.File(self.directory,'r') as h5:
+                img=h5[self.dataset_name][index,:,:]
+        return img
+
+    def set_positions(self,positions):
+        """array or list of tuples, containing x,y""" 
+        self.positions=positions
+
+    def set_units_per_pixel(self,units_per_pixel):
+        self.units_per_pixel=units_per_pixel
+
+    def sniff_dimensions(self,dimensions=None):
+        img=self.get_img(0)
+        #self.dtype=img.dtype
+        if dimensions is not None:
+            self.dimensions=dimensions
+        else:
+            self.dimensions=np.zeros([len(self.img_list),2],dtype=int)
+            
+            for i in range(len(self.img_list)):
+                if self.h5_mode:
+                    img=self.get_img(i)
+                    self.dimensions[i]=img.shape
+                else:
+                    self.dimensions[i]=imagesize.get(self.img_list[i])        
+    
+    def create_temporary_data(self,filename="temp.h5"):
+        self.temp_file=filename
+        img=self.get_img(0)
+        self.dtype=img.dtype
+        if len(np.unique(self.dimensions))>2:
+            print("all images must have equal dimensions")
+            return 0
+        else:
+            newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
+        
+        with h5py.File(filename, "w") as f:
+            f.create_dataset("data", newshape,self.dtype,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )#dtype="f4")
+            for i in range(len(self.img_list)):
+                img=self.get_img(i)
+                f["data"][i,:,:]=img
+
+    def subtract_dark_field(self,dark_field):
+        with h5py.File(self.temp_file, "r+") as f:
+            for i in range(len(self.img_list)):
+                f["data"][i,:,:]=np.maximum(f["data"][i,:,:]-dark_field,0)
+                
+    def flat_field_generation(self,percentile_steps=19,subdiv=4):
+        #needs temp data
+        #img_series=np.array(img_list)
+        #print(percentile_steps)
+        step=100/(percentile_steps+1)
+        steps=np.linspace(step,100-step,percentile_steps)
+        dims=self.dimensions[0]
+        flats=np.zeros([percentile_steps,dims[0],dims[1]])
+        subdiv_steps=int(dims[0]//4)
+        with h5py.File(self.temp_file, "r") as f:
+            start_index=0
+            for i in range(1,subdiv):
+                if not self.no_print:
+                    print(str(i)+" out of "+str(subdiv)+" iterations")
+                flats[:,start_index:i*subdiv_steps,:]=np.percentile(f["data"][:,start_index:i*subdiv_steps,:],steps,axis=0)                
+            if not self.no_print:
+                print(str(subdiv)+" out of "+str(subdiv)+" iterations")
+            flats[:,(subdiv-1)*subdiv_steps:,:]=np.percentile(f["data"][:,(subdiv-1)*subdiv_steps:,:],steps,axis=0)
+        #flats=np.percentile(img_series,steps,axis=0)
+        self.flat_field=np.mean(flats,axis=0)
+        self.flats=flats
+        return self.flat_field
+
+    def dust_from_flat_field(self,flat_field,threshold_block_size=17,morph_closing_size=5,dark_background=True,dilate=0):
+        th=  cv2.adaptiveThreshold(img_to_uint8(flat_field),255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,threshold_block_size,2) 
+        kernel = np.ones((morph_closing_size, morph_closing_size), np.uint8)
+        closed = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel)
+    
+        if dark_background:
+            num,img=cv2.connectedComponents(255-closed)
+        else:
+            num,img=cv2.connectedComponents(closed)
+        if not self.no_print:
+            print(str(num)+" dust particles found")
+    
+        img_d=cv2.dilate(img.astype(np.uint8),np.ones([3,3],dtype=np.uint8))
+        last=np.copy(img)
+        for i in range(dilate):
+            last=np.copy(img_d)
+            img_d=cv2.dilate(img_d,np.ones([3,3],dtype=np.uint8))
+            
+            
+        rings=img_d-last
+    
+        self.dust_dict=dict()
+        for i in range(num-1):
+            self.dust_dict[i]=list() 
+            #dust indices
+            self.dust_dict[i].append(np.where(last==i+1))
+    
+            #ring indices
+            self.dust_dict[i].append(np.where(rings==i+1))
+        self.dust_dict
+        return last
+
+    def dust_removal(self,img):
+        #needs temp data
+        result=np.copy(img)
+        for i in self.dust_dict:
+            if len(self.dust_dict[i][1][0])<1:
+                print("Warning: empty ring")
+            ring_median=np.median(img[self.dust_dict[i][1]])
+            result[self.dust_dict[i][0]]=ring_median
+        return result
+    
+    def dust_removal_all(self):
+        self.flat_field=self.dust_removal(self.flat_field)
+        with h5py.File(self.temp_file, "r+") as f:
+            for i in range(len(self.img_list)):
+                f["data"][i,:,:]=self.dust_removal(f["data"][i,:,:])
+
+    def flat_field_correction(self,flat_field=None):
+        if flat_field is None:
+            flat_field=self.flat_field
+        if np.min(flat_field)<=0:
+            flat_field=flat_field.astype(np.double)
+            flat_field[flat_field<=0]=np.inf
+            flat_field[flat_field==np.inf]=np.min(flat_field)
+        
+        newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
+        with h5py.File(self.temp_file, "r+") as f:
+            f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+            for i in range(len(self.img_list)):
+                f["data_corrected"][i,:,:]=f["data"][i,:,:]/flat_field  
+
+    def convert_to_uint16(self,real_zero=False):#,newdtype=np.uint16):
+        img_maxs=np.zeros(len(self.img_list))
+        img_mins=np.zeros(len(self.img_list))        
+        with h5py.File(self.temp_file, "r") as f:
+            for i in range(len(self.img_list)):
+                corr=f["data_corrected"][i,:,:]  
+                img_maxs[i]=np.max(corr)
+                img_mins[i]=np.min(corr)                     
+
+            img_min=np.min(img_mins)
+            img_max=np.max(img_maxs)
+            div=img_max-img_min
+                
+            newname=self.temp_file[:-3]+"_very_temporary.h5"
+            newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
+            with h5py.File(newname, "w") as tf:
+                tf.create_dataset("data", newshape,np.uint16,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+                for i in range(len(self.img_list)):
+                    corr=((f["data_corrected"][i,:,:]-img_min)/div) * 65535  
+                    tf["data"][i,:,:]=corr.astype(np.uint16)
+            if real_zero:
+                newname=self.temp_file[:-3]+"_real_zero.h5"
+                with h5py.File(newname, "w") as tf:
+                    tf.create_dataset("data", newshape,np.uint16,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+                    for i in range(len(self.img_list)):
+                        corr=(f["data_corrected"][i,:,:]/img_max) * 65535  
+                        tf["data"][i,:,:]=corr.astype(np.uint16)
+
+        os.remove(self.temp_file)
+        os.rename(self.temp_file[:-3]+"_very_temporary.h5",self.temp_file)
+
+
+    def make_polygons(self,units_per_pixel=None,positions=None,dimensions=None,orientation=0):
+        if units_per_pixel is None:
+            units_per_pixel=self.units_per_pixel
+        if positions is None:
+            positions=self.positions
+        if dimensions is None:
+            dimensions=self.dimensions
+
+        N=len(positions)
+        anchor_points=np.zeros([N,2])
+        polygons=[]
+        im_size=units_per_pixel*dimensions
+        
         side0comp=np.ones(N)
         side1comp=np.zeros(N)
-        
-    for i in range(N):
-        deltax=im_size[i,1]*np.array([side0comp[i],side1comp[i]])
-        deltay=im_size[i,0]*np.array([-side1comp[i],side0comp[i]])
-        p0=positions[i]+deltax/2-deltay/2
-        p1=p0-deltax
-        p2=p1+deltay
-        p3=p2+deltax
-        polygons.append(shapely.geometry.Polygon([p0,p1,p2,p3]))
-        anchor_points[i]=p0        
-    return polygons,anchor_points
-
-
-def pixel_to_real_relation(im1,im2,pos1,pos2,check=True):
-    #two uint8-images with some overlap, with same magnification(scale), resolution(dimensions) and rotation
-    if check:
-        if len(im1.shape)==2:
-            im1=img_gray_to_rgba(im1)
-        if len(im2.shape)==2:
-            im2=img_gray_to_rgba(im2)
             
-    pts1,pts2=sift_align_matches(im1,im2)
-    res1,res2,params=align_pair(im1,im2,pts1,pts2,verbose=True)
+        for i in range(N):
+            deltax=im_size[i,1]*np.array([side0comp[i],side1comp[i]])
+            deltay=im_size[i,0]*np.array([-side1comp[i],side0comp[i]])
+            p0=positions[i]+deltax/2-deltay/2
+            p1=p0-deltax
+            p2=p1+deltay
+            p3=p2+deltax
+            polygons.append(shapely.geometry.Polygon([p0,p1,p2,p3]))
+            if orientation==0:
+                anchor_points[i]=p0
+            elif orientation==1:
+                anchor_points[i]=p1
+            elif orientation==2:
+                anchor_points[i]=p2
+            elif orientation==3:
+                anchor_points[i]=p3
+        self.polygons=polygons
+        self.anchor_points=anchor_points
+        return polygons,anchor_points
 
-    realshift=pos2-pos1
-    realdist=np.sqrt(np.sum(realshift*realshift))
-    pixshift=params["translation"]
-    pixdist=np.sqrt(np.sum(pixshift*pixshift))
-    units_per_pixel=realdist/pixdist
-    deltarad=np.arctan2(pixshift[1],-pixshift[0])-np.arctan2(realshift[1],realshift[0])
-    deltadeg=np.degrees(deltarad)
-    if check:
-        stitched=img_add_weighted_rgba(res1, res2)
-        plt.imshow(stitched)
+
+
+    def connection_groups(self,polygons=None,units_per_pixel=None,minimal_number_of_pixels=64,inverse=False):
+        if polygons is None:
+            polygons=self.polygons
+        if units_per_pixel is None:
+            units_per_pixel=self.units_per_pixel
+    
+        N=len(polygons)
+        square_units=units_per_pixel*units_per_pixel
+        G = nx.Graph()
+        G.add_nodes_from(np.arange(N))
         
-    return units_per_pixel,deltadeg
-
-
-def real_to_pixel(unit_per_pixel,scan_rotation,anchor_point,points):
-    theta=np.radians(scan_rotation)
-    a=np.sin(theta)
-    b=np.cos(theta)
-    rotation_matrix=np.array([[b,a],[-a,b]])
-    points=np.vstack((points,anchor_point))
-    res=np.tensordot(points,rotation_matrix,axes=1)
-    #print(res.shape)
-    points=res[:-1]-res[-1]
-    points /= unit_per_pixel
-    points=points[:,::-1]
-    points[:,1] *= -1
-    return np.round(points).astype(int)
-
-
-def pixel_to_real(unit_per_pixel,scan_rotation,anchor_point,points):#,anchor_shift=np.zeros(2)):
-    side0comp=np.cos(np.radians(-scan_rotation))*unit_per_pixel
-    side1comp=np.sin(np.radians(-scan_rotation))*unit_per_pixel
-    vec1=np.array([side0comp,side1comp])
-    vec0=np.array([-side1comp,side0comp])
-    #anchor_point=anchor_point-anchor_shift[0]*vec0+anchor_shift[1]*vec1
-    real_points=np.empty(points.shape)
-    for i in range(len(points)):
-        real_points[i]=-points[i,1]*vec1+points[i,0]*vec0    
-        real_points[i]+=anchor_point
-        
-    return real_points#,anchor_point
-
-
-def connection_groups(polygons,units_per_pixel,minimal_number_of_pixels):
-    N=len(polygons)
-    square_units=units_per_pixel*units_per_pixel
-    G = nx.Graph()
-    G.add_nodes_from(np.arange(N))
-    for i in range(N-1):
-        for j in range(i+1,N):
-            inter=shapely.intersection(polygons[i],polygons[j])
-            area=inter.area
-            cond1=area/square_units[i]>minimal_number_of_pixels
-            cond2=area/square_units[j]>minimal_number_of_pixels
-            #intersection=polygons[i].intersects(polygons[j])
-            if cond1 and cond2:#intersection:
-                G.add_edge(i,j)
-
-    con_groups=[]
-    for i in nx.connected_components(G):
-        con_groups.append(np.array(list(G.subgraph(i).edges)))
-    return con_groups#,con_graph
-#G=nx.from_edgelist(con_groups[0])
-
-def path_through_connected(con_group,start=None):
-    if start is None:
-        start=np.min(con_group)
-    G=nx.from_edgelist(con_group)
-    edgepath=[i for i in nx.bfs_edges(G,source=start)]
-    #node_dict=dict()
-    return np.array(edgepath)
-
-def create_metadata(pathlist,positions,dimensions,units_per_pixel,scan_rotations,polygons,anchor_points):#,connected_groups):
-    metadata=dict()
-    for i in range(len(pathlist)):
-        metadata[i]=dict()
-        metadata[i]["filepath"]=pathlist[i]
-        metadata[i]["position"]=positions[i]
-        metadata[i]["dimensions"]=dimensions[i]
-        metadata[i]["units_per_pixel"]=units_per_pixel[i]
-        metadata[i]["scan_rotation"]=scan_rotations[i]
-        metadata[i]["polygon"]=polygons[i]
-        metadata[i]["anchor_point"]=anchor_points[i]
+        for i in range(N-1):
+            for j in range(i+1,N):
+                inter=shapely.intersection(polygons[i],polygons[j])
+                area=inter.area/square_units
+                cond1=area>minimal_number_of_pixels
+                if cond1:
+                    if inverse:
+                        G.add_edge(i,j,weight=1/area)
+                    else:
+                        G.add_edge(i,j,weight=area)
     
-    return metadata
+        con_groups=[]
+        for i in nx.connected_components(G):
+            con_groups.append(np.array(list(G.subgraph(i).edges)))
+        self.G=G
+        if len(con_groups)>1:
+            print("not all images can be connected via overlap")
+            print("sorting out of non-connected images needed")
+        self.con_group=con_groups[0]
+        return G,con_groups
 
-def get_outer_polygon_limits(metadata):
-    minx=np.inf
-    miny=np.inf
-    maxx=-np.inf
-    maxy=-np.inf    
-    for i in metadata.values():
-        x,y=i["polygon"].exterior.xy
-        pminx,pmaxx=np.min(x),np.max(x)
-        pminy,pmaxy=np.min(y),np.max(y)
-
- 
-        minx=min(pminx,minx)
-        miny=min(pminy,miny)
-        maxx=max(pmaxx,maxx)
-        maxy=max(pmaxy,maxy)
-        
-
-    points=np.zeros([4,2])
-    points[0]=minx,miny
-    points[1]=maxx,miny
-    points[2]=maxx,maxy
-    points[3]=minx,maxy
-    return points
-
-def get_stitchpath(stitchpaths,index):
-    if not isinstance(index,list):
-        index=[index]
-    newindex=stitchpaths[index[-1]]
-    if newindex==index[-1]:
-        return index
-        
-    index.append(int(stitchpaths[index[-1]]))
-    return get_stitchpath(stitchpaths,index)
-
-def stitchpath_correction(edgepath0,metadata,infolog):
-
-    #startpos=metadata[-1]["position"]
-    endpos=metadata[edgepath0]["position"]
-    
-    return infolog[edgepath0]["im1pos"]-endpos#al_delta-from_pixel_delta#)[::-1]
-
-def process_on_loading(img,subtract_background=75,normalizer=None,clip_ratio=0.01,rebin=None):
-    
-    if rebin is None:
-        img_eff=img
-    else:
-        img_eff=img_rebin_by_mean(img, rebin)
-    
-    if subtract_background:
-        im1float=img_eff/(1+cv2.blur(img_eff,[subtract_background,subtract_background]))
-    else:                                                     
-        #if normalizer is None:
-        im1float=img_eff
-        #else:
-        #    im1float=img/normalizer
-
-    if clip_ratio:
-        im1float=img_autoclip(im1float,clip_ratio)
-    
-    resimg=np.empty([im1float.shape[0],im1float.shape[1],2],dtype=np.uint8)
-    resimg[:,:,0]=img_to_uint8_fast(im1float)
-    if normalizer is None:
-        resimg[:,:,1]+=255
-    else:
-        resimg[:,:,1]=normalizer
-    return resimg
-
-
-def prepare_stitch_object(edgepath,metadata,con_group,padding=0,process_on_loading=None):
-    
-    index1=edgepath[0,0]    
-    
-    im1=cv2.imread(metadata[index1]["filepath"],0) 
-    if process_on_loading is not None:
-        res_img_small=process_on_loading(im1)
-    else:
-        res_img_small=im1
-
-    
-    G=nx.from_edgelist(con_group)
-    metadata[-1]=metadata[index1].copy()
-
-    outer_points=get_outer_polygon_limits(metadata)
-    
-    pixel_points=real_to_pixel(metadata[-1]["units_per_pixel"], metadata[-1]["scan_rotation"], metadata[-1]["anchor_point"],outer_points)
-    min0,max0=np.min(pixel_points[:,0]),np.max(pixel_points[:,0])
-    min1,max1=np.min(pixel_points[:,1]),np.max(pixel_points[:,1])
-
-    min0-=padding
-    min1-=padding
-    max0+=padding
-    max1+=padding    
-
-    resdim=np.array([max0-min0,max1-min1])        
-    res_img=np.zeros([resdim[0],resdim[1],2],dtype=np.uint8)
-    res_img[-min0:-min0+res_img_small.shape[0],-min1:-min1+res_img_small.shape[0],:]=img_single_to_double_channel(res_img_small)
-
-    anchor_update=pixel_to_real(metadata[-1]["units_per_pixel"], metadata[-1]["scan_rotation"], metadata[-1]["anchor_point"],np.array([[min0,min1]]))
-    metadata[-1]["anchor_point"]=anchor_update[0]
-    infolog=metadata[-1].copy()
-
-
-    infolog[index1]=dict()
-    infolog[index1]["step"]=0
-    infolog[index1]["translation"]=np.zeros(2)
-    infolog[index1]["rotation"]=0
-    infolog[index1]["scale"]=1
-    infolog[index1]["im1shift"]=np.array([-min0,-min1])
-    infolog["stitchpaths"]=dict()
-    infolog["stitchpaths"][index1]=index1
-    #infolog["stitchindices"]=[index1]
-    
-    infolog[index1]["im1pos"]=metadata[index1]["position"]
-
-    stitchobject=dict()
-
-    stitchobject["edgepath"]=edgepath
-    stitchobject["res_img"]=res_img
-    stitchobject["graph"]=G
-    stitchobject["counter"]=0
-    stitchobject["infolog"]=infolog
-    stitchobject["metadata"]=metadata.copy()
-    return stitchobject
-
-
-
-def stitch_by_overlap_no_copy(im1,im2,index1,index2,metadata,level_lowe=0.5,rotation_limit=None,relative_scale_limit=None,overlap_pad=0,
-                              translation_only=False,correct_for_stitchpath=None,infolog=None,plotting=False,
-                              minimal_number_of_sift_features=15,minimal_correlation_sigma=5,
-                              no_sift=False,force=False):
-
-    #if len(im2.shape)==2:
-    #    im2=img_single_to_double_channel(im2)
-
-    if correct_for_stitchpath is None:
-        poly2=metadata[index2]["polygon"]
-    else:
-        #poly3=metadata[index2]["polygon"]
-        poly2=shapely.affinity.translate(metadata[index2]["polygon"],correct_for_stitchpath[0],correct_for_stitchpath[1])#1+
-
-    overlap=shapely.intersection(metadata[index1]["polygon"],poly2)
-    
-    overlap_coord=np.array(overlap.oriented_envelope.exterior.xy).T[:-1]
-
-
-    if plotting or len(overlap_coord)==0:
-        #p3p=-np.array(poly3.exterior.xy)
-        p2p=-np.array(poly2.exterior.xy)
-        p1p=-np.array(metadata[index1]["polygon"].exterior.xy)
-        if len(overlap_coord)==0:
-            pass
+    def plot_connection_network(self,figsize=[15,15],relative=True):
+        plt.figure(figsize=figsize)
+        if relative:
+            plt.title("percentage of maximum neighbor-overlap")
         else:
-            pop=-np.array(overlap.exterior.xy)
-            plt.plot(pop[0],pop[1],'r')
-        
-        #plt.plot(p3p[0],p3p[1],'b')    
-        plt.plot(p2p[0],p2p[1],'g')
-        plt.plot(p1p[0],p1p[1],'k')
-        plt.axis("equal")
-        plt.show()
+            plt.title("neighbor-overlap in pixels")
 
-    if len(overlap_coord)==0:
-        print("empty overlap")
-        #a=5/0
-        return None,None,None
-
-    #overlapcenter=np.array(overlap.centroid.coords[0])
-    #distances=np.empty(len(p2coord))
-    #for i in range(len(distances)):
-    #    distances[i]=np.sqrt(np.sum((p2coord[i]-overlapcenter)*(p2coord[i]-overlapcenter)))
-    #distance=np.max(distances)
-    #im1_points=np.empty([4,2])
-    #im1_points[0]=overlapcenter+np.array([distance,distance])
-    #im1_points[1]=overlapcenter+np.array([distance,-distance])
-    #im1_points[2]=overlapcenter+np.array([-distance,-distance])
-    #im1_points[3]=overlapcenter+np.array([-distance,distance])
-    #print(overlap_coord)
-    #print(overlapcenter)
-    #print(distance)
-    
-    
-
-    im1_coord=real_to_pixel(metadata[index1]["units_per_pixel"],
-                            metadata[index1]["scan_rotation"],
-                            metadata[index1]["anchor_point"],
-              np.array(metadata[index1]["polygon"].exterior.xy).T[:-1])
-    
-    im1_overlap_coord=real_to_pixel(metadata[index1]["units_per_pixel"],
-                            metadata[index1]["scan_rotation"],
-                            metadata[index1]["anchor_point"],
-                            overlap_coord)
-
-        
-    lower1=np.min(im1_overlap_coord,axis=0)-overlap_pad
-    upper1=np.max(im1_overlap_coord,axis=0)+overlap_pad
-
-    
-    #print(correct_for_stitchpath)
-    for i in range(len(overlap_coord)):
-        overlap_coord[i]-=correct_for_stitchpath
-        
-    im2_coord=real_to_pixel(metadata[index2]["units_per_pixel"],
-                            metadata[index2]["scan_rotation"],
-                            metadata[index2]["anchor_point"],
-                            overlap_coord)
-
-
-    lower2=np.min(im2_coord,axis=0)-overlap_pad
-    upper2=np.max(im2_coord,axis=0) +overlap_pad      
-    im1_cropdim=upper1-lower1
-    im2_cropdim=upper2-lower2
-    
-    dimdiff=im2_cropdim-im1_cropdim
-    if np.sum(np.abs(dimdiff)>0):
-        print("dimdiff>0 some rounding")
-    if  dimdiff[0]<0:
-        lower1[0]+=1
-    elif dimdiff[0]>0:
-        lower2[0]+=1
-        
-    if  dimdiff[1]<0:
-        lower1[1]+=1
-    elif dimdiff[1]>0:
-        lower2[1]+=1
-
-    cropdim=upper2-lower2
-    
-    im2_cropped=np.zeros([cropdim[0],cropdim[1],2],dtype=np.uint8)
-    
-    offs2=np.zeros(2,dtype=int)
-    l2=np.zeros(2,dtype=int)
-    if lower2[0] < 0:
-        offs2[0]=-lower2[0]
-    else:
-        l2[0]=lower2[0]
-        
-    if lower2[1] < 0:
-        offs2[1]=-lower2[1]
-    else:
-        l2[1]=lower2[1]
-
-    ucpd=upper2-l2+offs2
-    if upper2[0]>metadata[index2]["dimensions"][0]:
-        ucpd[0]+=(metadata[index2]["dimensions"][0]-upper2[0])
-
-    if upper2[1]>metadata[index2]["dimensions"][1]:
-        ucpd[1]+=(metadata[index2]["dimensions"][1]-upper2[1])
-
-    im2_cropped[offs2[0]:ucpd[0],offs2[1]:ucpd[1],:]=im2[l2[0]:upper2[0],l2[1]:upper2[1],:]
-
-    im1_cropped=im1[lower1[0]:upper1[0],lower1[1]:upper1[1],:]
-    if im1_cropped.shape[0]!=im2_cropped.shape[0] or im1_cropped.shape[1]!=im2_cropped.shape[1]:
-        print("--------------------------------------------------------------------")
-        print("pad image1 before (phase_correlation)")
-        return None,None,None
- 
-    if no_sift:
-        pts1=np.zeros(2)
-    else:
-        try:
-            pts1,pts2 = sift_align_matches(im1_cropped[:,:,0],im2_cropped[:,:,0],level_lowe) #clipped
-        except:
-            print("no sift matches found")
-            pts1=np.zeros(2)
-        #return None,None,None
-    if len(pts1)<minimal_number_of_sift_features:
-        print("warning: "+str(index1)+" , "+str(index2))
-        print(len(pts1))
-        print("phase correlation used                         phase_correlation")
- 
-        transl2,certainty=close_translation_by_phase_correlation(im1_cropped[:,:,0],im2_cropped[:,:,0])
-        transl=phase_cross_correlation(im1_cropped[:,:,0],im2_cropped[:,:,0],
-                                       reference_mask=im1_cropped[:,:,1]>1, 
-                                       moving_mask=im2_cropped[:,:,1]>1,
-                                       disambiguate=True)[0]
-        
-        print(transl,certainty)
-        if certainty <minimal_correlation_sigma:
-            print("no good phase correlation found       sorted out ")
-            if not force:
-                return None,None,None
-            else: 
-                transl=np.zeros(2)
-        pts1=np.zeros([4,2])#,dtype=int)
-        pts1[0]=0,0
-        pts1[1]=2,0
-        pts1[2]=2,2
-        pts1[3]=0,2
-        pts2=np.zeros([4,2])#,dtype=int)
-        for i in range(4):
-            pts2=pts1-transl[::-1]
-        coffs=np.min(pts2,axis=0)
-        for i in range(4):
-            pts1[i]-=coffs
-            pts2[i]-=coffs
-
-    
-    pts2[:,0]+=lower2[1]
-    pts2[:,1]+=lower2[0]
-        
-    imtransformed,params = align_pair_special(im1_cropped,im2,pts1,pts2,
-                                              relative_scale_limit=relative_scale_limit,
-                                              translation_only=translation_only)
-    if params is None:
-        print("Scale Warning")
-        return None,None,None
-    
-    if rotation_limit is not None:
-        if np.abs(params["rotation"])>rotation_limit:
-            print("Rotation Warning")
-            return None,None,None
-            
-    
-    offset=lower1-params["im1shift"]
-
-    if offset[0]<0 or offset[1]<0:#correct_negative0>0 or correct_negative1>0:
-        print("--------------------------------------------------------------------")
-        print("pad image1 before")
-        return None,None,None
-
-    imog=im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],:]
-    
-    im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],:]=img_add_weighted_gray_alpha(imog,imtransformed)
-
-    imtransformed2=img_add_weighted_gray_alpha(imog,imtransformed)
-    imgbool=(imog[:,:,1].astype(np.uint16)*imtransformed2[:,:,1].astype(np.uint16))>0
-    imgboolnum=imgbool*1
-    im1check=img_to_uint8_fast(imgboolnum*imog[:,:,0])
-    im2check=img_to_uint8_fast(imgboolnum*imtransformed2[:,:,0])
-    #print("PSNR")
-    print(skimage.metrics.peak_signal_noise_ratio(im1check,im2check))
-    print(skimage.metrics.structural_similarity(im1check, im2check))
-
-
-    num,newimg=cv2.connectedComponents(
-        im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],1])#nres)
-    
-    if num>2:
-        print("more than two")
-        print(num)
-        im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],:]=imog
-
-        return None,None,None
-
-
-
-    t0low=min(offset[0],lower1[0],np.min(im1_coord[:,0]))
-    t1low=min(offset[1],lower1[1],np.min(im1_coord[:,1]))
-    t0up=max(offset[0]+imtransformed.shape[0],upper1[0],np.max(im1_coord[:,0]))
-    t1up=max(offset[1]+imtransformed.shape[1],upper1[1],np.max(im1_coord[:,1]))
-
-
-    thresh,nres=cv2.threshold(imtransformed[:,:,1],1,255,cv2.THRESH_BINARY )
-
-    contours2, hierarchy2 = cv2.findContours(nres, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_KCOS)#, cv2.CHAIN_APPROX_SIMPLE)
-    cont2=contours2[0][:,0,:][:,::-1]    
-    cont2[:,0]+=offset[0]
-    cont2[:,1]+=offset[1]
-    
-    #new_poly_points2=pixel_to_real(metadata[index1]["units_per_pixel"],
-    #                                     metadata[index1]["scan_rotation"],
-    #                                     metadata[index1]["anchor_point"],
-    #                                     cont2)
-    #polyg2=shapely.geometry.Polygon(new_poly_points2)
-    #pc2=polyg2.centroid.coords[0]
-
-    thresh,nres=cv2.threshold(im1[t0low:t0up,t1low:t1up,1],1,255,cv2.THRESH_BINARY )
-
-    contours, hierarchy = cv2.findContours(nres, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_KCOS)#, cv2.CHAIN_APPROX_SIMPLE)
-    cont=contours[0][:,0,:][:,::-1]    
-    cont[:,0]+=t0low
-    cont[:,1]+=t1low
-    
-    new_poly_points=pixel_to_real(metadata[index1]["units_per_pixel"],
-                                         metadata[index1]["scan_rotation"],
-                                         metadata[index1]["anchor_point"],
-                                         cont)
-
-    if len(new_poly_points)<4:
-        print("something wrong")
-        return None,None,None
-    if plotting:
-        plt.imshow(im1[:,:,1]>1)
-        plt.title("im1_after")
-        plt.show()
-    
-    params["im1shift"]=offset
-    return params,shapely.geometry.Polygon(new_poly_points)#,pc2
-
-
-def close_translation_by_phase_correlation(im1,im2):
-    
-    dims=im1.shape
-    mat=phase_correlation(im1,im2)
-    transl,maxval=max_from_2d(mat)
-    if transl[0]>dims[0]/2:
-        transl[0]-=dims[0]
-    if transl[1]>dims[1]/2:
-        transl[1]-=dims[1]
-    mean=np.mean(mat)
-    std=np.std(mat)
-    certainty=(maxval-mean)/std
-    return transl,certainty
-
-def stitch_all_no_copy(stitchobject,numbreak=np.inf,level_lowe=0.5,overlap_pad=0,rotation_limit=None,relative_scale_limit=None,
-                       process_on_loading=None,plotting=False,minimal_number_of_sift_features=15,minimal_correlation_sigma=5,
-                       no_sift=False,force=False,maximal_transl=None):
-
-    #if "edgepath" in data:
-    edgepath=stitchobject["edgepath"]
-    metadata=stitchobject["metadata"]
-    index1=edgepath[0,0]
-
-    res_img=stitchobject["res_img"]
-    G=stitchobject["graph"]
-    counter=stitchobject["counter"]
-    infolog=stitchobject["infolog"]
-        
-        
-    while counter < len(edgepath):
-
-        index2=edgepath[counter,1]
-        im2=cv2.imread(metadata[edgepath[counter,1]]["filepath"],0)
-        if process_on_loading is not None:
-            res2=process_on_loading(im2)
-        else:
-            res2=im2
-    
-        correct_for_stitchpath=stitchpath_correction(edgepath[counter,0],metadata,infolog)
-        print(edgepath[counter])
-        
-        #plt.imshow(res2[:,:,1])
-        #plt.title("res2")
-        #plt.show()
-        res_params,res_polygon,pc2=stitch_by_overlap_translation(res_img,res2,-1,index2,metadata,level_lowe,
-                                    overlap_pad=overlap_pad,
-                                    correct_for_stitchpath=correct_for_stitchpath,
-                                    infolog=infolog,plotting=plotting,
-                                    no_sift=no_sift,
-                                    maximal_transl=maximal_transl)
-
-        #res_params,res_polygon=stitch_by_overlap_no_copy(res_img,res2,-1,index2,metadata,level_lowe,translation_only=True,overlap_pad=overlap_pad,
-        #                            rotation_limit=rotation_limit,relative_scale_limit=relative_scale_limit,
-        #                            correct_for_stitchpath=correct_for_stitchpath,
-        #                            infolog=infolog,plotting=plotting,
-        #                            minimal_number_of_sift_features=minimal_number_of_sift_features,
-        #                            minimal_correlation_sigma=minimal_correlation_sigma)
-        
-        if res_polygon is None:
-            print(str(index2) +" index removed")
-            G.remove_edge(edgepath[counter][0],edgepath[counter][1])
-            newedgepath=np.array([i for i in nx.bfs_edges(G,source=index1)])
-            
-            if np.sum(edgepath[:counter]-newedgepath[:counter])==0:
-                edgepath=newedgepath
+        nx.draw(self.G, pos=self.positions, with_labels=True,)
+        edge_labels = nx.get_edge_attributes(self.G, "weight")
+        keylist=list(edge_labels.keys())
+        maxval=0
+        for i in keylist:
+            area=edge_labels[i]
+            maxval=np.maximum(area,maxval)
+        for i in keylist:
+            if relative:
+                edge_labels[i]=np.round(edge_labels[i]/maxval * 100,1)
             else:
-                print("should never appear ")
+                edge_labels[i]=int(np.round(edge_labels[i]))
+        nx.draw_networkx_edge_labels(self.G, self.positions, edge_labels,label_pos=0.3)
+        plt.show()
 
-            if counter==0:
-                pass
-            else:
-                pass
-            """
-                stitchobject2=dict()
-                stitchobject2["edgepath"]=edgepath
-                stitchobject2["res_img"]=res_img
-                stitchobject2["graph"]=G
-                stitchobject2["counter"]=counter
-                stitchobject2["infolog"]=infolog
-                stitchobject2["metadata"]=metadata.copy()
+
+    def get_outer_polygon_limits(self,polygons):
+        minx=np.inf
+        miny=np.inf
+        maxx=-np.inf
+        maxy=-np.inf    
+        for polygon in polygons:
+            #if not isinstance(i,float):
+            x,y=polygon.exterior.xy
+            pminx,pmaxx=np.min(x),np.max(x)
+            pminy,pmaxy=np.min(y),np.max(y)
+    
+     
+            minx=min(pminx,minx)
+            miny=min(pminy,miny)
+            maxx=max(pmaxx,maxx)
+            maxy=max(pmaxy,maxy)
+        
+    
+        points=np.zeros([4,2])
+        points[0]=minx,miny
+        points[1]=maxx,miny
+        points[2]=maxx,maxy
+        points[3]=minx,maxy
+        return points
+    
+    
+    def close_translation_by_phase_correlation(self,im1,im2,sigma=1,max_transl=None):
+        
+        #dims=im1.shape
+            
+        mat=phase_correlation(im1,im2)
+        #matb=cv2.blur(mat,[blur,blur])
+        ksize=int(sigma*4)
+        if ksize%2==0:
+            ksize+=1
+        matb=cv2.GaussianBlur(mat,[ksize,ksize],sigma)#,cv2.BORDER_WRAP)
+        mat0=matb-np.min(matb)
+        
+        dims=mat0.shape
+        
+        mean=np.mean(mat0)
+        std=np.std(mat0)
+        #print(std)
+        if max_transl:
+            img_mask=np.zeros(dims)
+            img_mask[:max_transl[0]+1,:max_transl[1]+1]=1
+            img_mask[:max_transl[0]+1,-max_transl[1]:]=1
+            img_mask[-max_transl[0]:,:max_transl[1]+1]=1
+            img_mask[-max_transl[0]:,-max_transl[1]:]=1
+            #plt.imshow(img_mask)
+        else:
+            img_mask=np.ones(dims)
+            
+        matm=mat0*img_mask
+        
+        transl,maxval=max_from_2d(matm)
+        if transl[0]>dims[0]/2:
+            transl[0]-=dims[0]
+        if transl[1]>dims[1]/2:
+            transl[1]-=dims[1]
+    
+        
+        certainty=(maxval-mean)/std
+        return transl,certainty
+    
+    
+    def real_to_pixel(self,index,points,orientation=2):
+        unit_per_pixel=self.units_per_pixel
+        anchor_point=self.anchor_points[index]
+        points=np.vstack((points,anchor_point))
+        #print("sdfsdf")
+        #print(points)
+        points=points[:-1]-points[-1]
+        
+        points /= unit_per_pixel
+        points=points[:,::-1] #*-1
+        #if orientation==0:
+        #    points[:,1] *= -1
+        if orientation==2:
+            points[:,0] *= -1
+        
+        return points#np.round(points).astype(int)
+    
+    def crop_from_points(self,img,points,shape=None):
+        vmin,hmin=np.min(points,axis=0)
+        vmax,hmax=np.max(points,axis=0)
+        
+        vmin_int=int(np.round(vmin))
+        vmax_int=int(np.round(vmax))
+        hmin_int=int(np.round(hmin))
+        hmax_int=int(np.round(hmax))
+        #print(shape)
+        #print("----------")
+        #print(vmax-vmin)
+        if shape:# is not None:
+            if vmax_int-vmin_int > shape[0]: #bigger than intended
+                lower_residual=vmin_int-vmin # negative makes smaller
+                upper_residual=vmax-vmax_int # positive makes bigger
+                if lower_residual<upper_residual:
+                    vmin_int+=1
+                else:
+                    vmax_int-=1
                 
-                return stitchobject2
-            """
+            elif vmax_int-vmin_int < shape[0]: #smaller than intended
+                lower_residual=vmin_int-vmin # negative makes smaller
+                upper_residual=vmax-vmax_int # positive makes bigger
+                if lower_residual>upper_residual:
+                    vmin_int-=1
+                else:
+                    vmax_int+=1
+                    
+            if hmax_int-hmin_int > shape[1]: #bigger than intended
+                lower_residual=hmin_int-hmin # negative makes smaller
+                upper_residual=hmax-hmax_int # positive makes bigger
+                if lower_residual<upper_residual:
+                    hmin_int+=1
+                else:
+                    hmax_int-=1
                 
+            elif hmax_int-hmin_int < shape[1]: #smaller than intended
+                lower_residual=hmin_int-hmin # negative makes smaller
+                upper_residual=hmax-hmax_int # positive makes bigger
+                if lower_residual>upper_residual:
+                    hmin_int-=1
+                else:
+                    hmax_int+=1
+            
+        return img[vmin_int:vmax_int,hmin_int:hmax_int]
+    
+    
+    def pixel_to_real(self,index,points):
+        anchor_point=self.anchor_points[index]
+        unit_per_pixel=self.units_per_pixel
+        vec1=np.array([unit_per_pixel,0])
+        vec0=np.array([0,unit_per_pixel])
+        real_points=np.empty(points.shape)
+        for i in range(len(points)):
+            real_points[i]=points[i,1]*vec1-points[i,0]*vec0    
+            real_points[i]+=anchor_point        
+        return real_points
+
+    def check_pairs(self,max_transl_pix=None,sigma=1,check_data=False):
+        
+        shifts=[]
+        if check_data:        
+            croplist1=[]
+            croplist2=[]
+        pairs=np.array(self.G.edges())
+        
+        for pair in pairs:
+
+            index1=pair[0]
+            index2=pair[1]
+        
+            poly1=self.polygons[index1]
+            poly2=self.polygons[index2]
+        
+            overlap=shapely.intersection(poly1,poly2)
+            overlap_coord=np.array(overlap.oriented_envelope.exterior.xy).T[:-1]
+        
+        
+            im1_overlap_coord=self.real_to_pixel(index1,
+                            overlap_coord)
+    
+            im2_overlap_coord=self.real_to_pixel(index2,
+                            overlap_coord)
+
+            im2=self.get_img(index2)
+            im2_crop=self.crop_from_points(im2,im2_overlap_coord)
+        
+
+            im1=self.get_img(index1)
+            im1_crop=self.crop_from_points(im1,im1_overlap_coord)
+            
+            if check_data:
+                croplist1.append(im1_crop)
+                croplist2.append(im2_crop)
+            
+            pix_transl,certainty=self.close_translation_by_phase_correlation(im1_crop[:,:],im2_crop[:,:],
+                                                                             sigma=sigma,max_transl=max_transl_pix)#*im1_crop[:,:,1]
+        
+            real_transl=self.units_per_pixel*pix_transl[::-1]
+            real_transl[1]*=-1
+            
+            shifts.append(self.positions[index2]-self.positions[index1]+real_transl)
+
+        pcm_distances=dict()
+        edge_tuples=list(map(tuple, pairs))
+        for i,edge in enumerate(edge_tuples):
+            pcm_distances[edge]=shifts[i]
+
+        self.pcm_distances=pcm_distances
+        self.edge_tuples=edge_tuples
+
+        if check_data:
+            return pcm_distances,croplist1,croplist2
         else:
-            #infolog["stitchindices"].append(index2)
-            
-            metadata[-1]["polygon"]=res_polygon
-            infolog[index2]=res_params.copy()
-            
-            print("step "+str(counter)+" stitched "+str(index2))
-            infolog[index2]["im1pos"]=pc2
-            infolog["stitchpaths"][index2]=edgepath[counter,0]
-            infolog[index2]["step"]=counter
-            
-            #for testomg
-            #infolog[index2]["position"]=metadata[index2]["position"]
-            
-            counter+=1
-            if counter==numbreak:
-                break
-
-    stitchobject2=dict()
-    stitchobject2["edgepath"]=edgepath
-    stitchobject2["res_img"]=res_img
-    stitchobject2["graph"]=G
-    stitchobject2["counter"]=counter
-    stitchobject2["infolog"]=infolog
-    stitchobject2["metadata"]=metadata.copy()
-    
-    return stitchobject2
-
-def stitch_by_overlap_translation(im1,im2,index1,index2,metadata,level_lowe=0.5,
-                                  overlap_pad=0,correct_for_stitchpath=None,infolog=None,
-                                  plotting=False,maximal_transl=None,no_sift=False):
-
-    translation_only=True
-    if maximal_transl is None:
-        maximal_transl=np.sqrt(np.sum(np.array(im2.shape)**2))
-
-    if correct_for_stitchpath is None:
-        poly2=metadata[index2]["polygon"]
-    else:
-        #poly3=metadata[index2]["polygon"]
-        poly2=shapely.affinity.translate(metadata[index2]["polygon"],correct_for_stitchpath[0],correct_for_stitchpath[1])#1+
-
-    overlap=shapely.intersection(metadata[index1]["polygon"],poly2)
-    
-    overlap_coord=np.array(overlap.oriented_envelope.exterior.xy).T[:-1]
-
-
-    if plotting or len(overlap_coord)==0:
-        #p3p=-np.array(poly3.exterior.xy)
-        p2p=-np.array(poly2.exterior.xy)
-        p1p=-np.array(metadata[index1]["polygon"].exterior.xy)
-        if len(overlap_coord)==0:
-            pass
-        else:
-            pop=-np.array(overlap.exterior.xy)
-            plt.plot(pop[0],pop[1],'r')
-        
-        #plt.plot(p3p[0],p3p[1],'b')    
-        plt.plot(p2p[0],p2p[1],'g')
-        plt.plot(p1p[0],p1p[1],'-x',c='k')
-        plt.axis("equal")
-        plt.show()
-
-    if len(overlap_coord)==0:
-        print("empty overlap")
-        #a=5/0
-        return None,None,None
-
-    #overlapcenter=np.array(overlap.centroid.coords[0])
-    #distances=np.empty(len(p2coord))
-    #for i in range(len(distances)):
-    #    distances[i]=np.sqrt(np.sum((p2coord[i]-overlapcenter)*(p2coord[i]-overlapcenter)))
-    #distance=np.max(distances)
-    #im1_points=np.empty([4,2])
-    #im1_points[0]=overlapcenter+np.array([distance,distance])
-    #im1_points[1]=overlapcenter+np.array([distance,-distance])
-    #im1_points[2]=overlapcenter+np.array([-distance,-distance])
-    #im1_points[3]=overlapcenter+np.array([-distance,distance])
-    #print(overlap_coord)
-    #print(overlapcenter)
-    #print(distance)
-    
-    
-
-    im1_coord=real_to_pixel(metadata[index1]["units_per_pixel"],
-                            metadata[index1]["scan_rotation"],
-                            metadata[index1]["anchor_point"],
-              np.array(metadata[index1]["polygon"].exterior.xy).T[:-1])
-    
-    im1_overlap_coord=real_to_pixel(metadata[index1]["units_per_pixel"],
-                            metadata[index1]["scan_rotation"],
-                            metadata[index1]["anchor_point"],
-                            overlap_coord)
-
-        
-    lower1=np.min(im1_overlap_coord,axis=0)-overlap_pad
-    upper1=np.max(im1_overlap_coord,axis=0)+overlap_pad
-
-    
-    #print(correct_for_stitchpath)
-    for i in range(len(overlap_coord)):
-        overlap_coord[i]-=correct_for_stitchpath
-        
-    im2_coord=real_to_pixel(metadata[index2]["units_per_pixel"],
-                            metadata[index2]["scan_rotation"],
-                            metadata[index2]["anchor_point"],
-                            overlap_coord)
-
-
-    lower2=np.min(im2_coord,axis=0)-overlap_pad
-    upper2=np.max(im2_coord,axis=0) +overlap_pad
-    im1_cropdim=upper1-lower1
-    im2_cropdim=upper2-lower2
-    
-    dimdiff=im2_cropdim-im1_cropdim
-    if np.sum(np.abs(dimdiff)>0):
-        print("dimdiff>0 some rounding")
-    if  dimdiff[0]<0:
-        lower1[0]+=1
-    elif dimdiff[0]>0:
-        lower2[0]+=1
-        
-    if  dimdiff[1]<0:
-        lower1[1]+=1
-    elif dimdiff[1]>0:
-        lower2[1]+=1
-
-    cropdim=upper2-lower2
-    
-    im2_cropped=np.zeros([cropdim[0],cropdim[1],2],dtype=np.uint8)
-    
-    offs2=np.zeros(2,dtype=int)
-    l2=np.zeros(2,dtype=int)
-    if lower2[0] < 0:
-        offs2[0]=-lower2[0]
-    else:
-        l2[0]=lower2[0]
-        
-    if lower2[1] < 0:
-        offs2[1]=-lower2[1]
-    else:
-        l2[1]=lower2[1]
-
-    ucpd=upper2-l2+offs2
-    if upper2[0]>metadata[index2]["dimensions"][0]:
-        ucpd[0]+=(metadata[index2]["dimensions"][0]-upper2[0])
-
-    if upper2[1]>metadata[index2]["dimensions"][1]:
-        ucpd[1]+=(metadata[index2]["dimensions"][1]-upper2[1])
-
-    im2_cropped[offs2[0]:ucpd[0],offs2[1]:ucpd[1],:]=im2[l2[0]:upper2[0],l2[1]:upper2[1],:]
-
-    im1_cropped=im1[lower1[0]:upper1[0],lower1[1]:upper1[1],:]
-    if im1_cropped.shape[0]!=im2_cropped.shape[0] or im1_cropped.shape[1]!=im2_cropped.shape[1]:
-        print("--------------------------------------------------------------------")
-        print("pad image1 before (phase_correlation)")
-        return None,None,None
-    if no_sift:
-        sift_pts1=np.zeros(2)
-    else:
-        try:
-            sift_pts1,sift_pts2 = sift_align_matches(im1_cropped[:,:,0],im2_cropped[:,:,0],level_lowe) #clipped
-        except:
-            sift_pts1=np.zeros(2)
-
-        
-    if len(sift_pts1)<4:
-        print("no sift matches found")
-        sift_pts1,sift_pts2=make_point_translation(np.zeros(2))
-    else:
-        sift_pts2[:,0]+=lower2[1]
-        sift_pts2[:,1]+=lower2[0]
-        transl_sift=np.median(sift_pts1-sift_pts2,axis=0)[::-1]
-        sift_pts1,sift_pts2=make_point_translation(transl_sift)
-
-        
-    #transl=phase_cross_correlation(im1_cropped[:,:,0],im2_cropped[:,:,0],
-    #                               reference_mask=im1_cropped[:,:,1]>1, 
-    #                               moving_mask=im2_cropped[:,:,1]>1,
-    #                               disambiguate=True)[0]
-    
-    transl,certainty=close_translation_by_phase_correlation(im1_cropped[:,:,0],im2_cropped[:,:,0])
-    
-    #if trans
-    if np.sqrt(np.sum(transl**2))>maximal_transl:
-        print(np.sqrt(np.sum(transl**2)))
-        print(transl)
-        transl=np.zeros(2)
-        print("translation bigger than maximal")
-    
-    pts1,pts2=make_point_translation(transl)
-    pts2[:,0]+=lower2[1]
-    pts2[:,1]+=lower2[0]
-    
-
-    imtransformed,params = align_pair_special(im1_cropped,im2,pts1,pts2,
-                                              translation_only=translation_only)
-    if no_sift:
-        ssim2=-np.inf
-    else:
-        imtransformed2,params2 = align_pair_special(im1_cropped,im2,sift_pts1,sift_pts2,
-                                              translation_only=translation_only)
-        offset2=lower1-params2["im1shift"]
-        if offset2[0]<0 or offset2[1]<0:#correct_negative0>0 or correct_negative1>0:
-            print("offset2--------------------------------------------------------------------")
-            print("pad image1 before")
-            return None,None,None
-        
-        imog2=im1[offset2[0]:offset2[0]+imtransformed2.shape[0],offset2[1]:offset2[1]+imtransformed2.shape[1],:]
-        new2=img_add_weighted_gray_alpha(imog2,imtransformed2)    
-
-        imgbool2num=1*((imog2[:,:,1].astype(np.uint16)*new2[:,:,1].astype(np.uint16))>0)
-        im2check=img_to_uint8_fast(imgbool2num*new2[:,:,0])
-        im_orig_check2=img_to_uint8_fast(imgbool2num*imog2[:,:,0])
-
-        ssim2=skimage.metrics.structural_similarity(im_orig_check2, im2check)
-
-
-    offset=lower1-params["im1shift"]
-
-    if offset[0]<0 or offset[1]<0:#correct_negative0>0 or correct_negative1>0:
-        print("offset--------------------------------------------------------------------")
-        print("pad image1 before")
-        return None,None,None
-
-    imog=im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],:]
-    
-    new1=img_add_weighted_gray_alpha(imog,imtransformed)
-    
-
-    imgbool1num=1*((imog[:,:,1].astype(np.uint16)*new1[:,:,1].astype(np.uint16))>0)
-    im_orig_check1=img_to_uint8_fast(imgbool1num*imog[:,:,0])
-    im1check=img_to_uint8_fast(imgbool1num*new1[:,:,0])
-
-
-    ssim1=skimage.metrics.structural_similarity(im_orig_check1, im1check)
-    
-    #plt.imshow(im1check)
-    #plt.show()
-    #plt.imshow(im2check)
-    #plt.show()
-    
-    #print(ssim1)
-    #print(ssim2)
-
-    
-    if ssim2>ssim1:
-        correlation_better=False
-    else:
-        correlation_better=True
-        
-    if correlation_better:
-        print("phase correlation")
-        print(params)
-        print(transl)
-
-        
-        im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],:]=new1
-        t0low=min(offset[0],lower1[0],np.min(im1_coord[:,0]))
-        t1low=min(offset[1],lower1[1],np.min(im1_coord[:,1]))
-        t0up=max(offset[0]+imtransformed.shape[0],upper1[0],np.max(im1_coord[:,0]))
-        t1up=max(offset[1]+imtransformed.shape[1],upper1[1],np.max(im1_coord[:,1]))
-
-        newpos=np.empty([1,2])
-        newpos[0]=offset+np.array(imtransformed.shape)[:2]/2
-        new_pos_point=pixel_to_real(metadata[index1]["units_per_pixel"],
-                                             metadata[index1]["scan_rotation"],
-                                             metadata[index1]["anchor_point"],
-                                             newpos)[0]
-        
-        #thresh,nres=cv2.threshold(imtransformed[:,:,1],1,255,cv2.THRESH_BINARY )
-
-    else:
-        print("feature matching")
-        print(params2)
-        im1[offset2[0]:offset2[0]+imtransformed2.shape[0],offset2[1]:offset2[1]+imtransformed2.shape[1],:]=new2
-        t0low=min(offset2[0],lower1[0],np.min(im1_coord[:,0]))
-        t1low=min(offset2[1],lower1[1],np.min(im1_coord[:,1]))
-        t0up=max(offset2[0]+imtransformed2.shape[0],upper1[0],np.max(im1_coord[:,0]))
-        t1up=max(offset2[1]+imtransformed2.shape[1],upper1[1],np.max(im1_coord[:,1]))
-        
-        newpos=np.empty([1,2])
-        newpos[0]=offset2+np.array(imtransformed2.shape)[:2]/2
-        new_pos_point=pixel_to_real(metadata[index1]["units_per_pixel"],
-                                             metadata[index1]["scan_rotation"],
-                                             metadata[index1]["anchor_point"],
-                                             newpos)[0]
-        
-        #thresh,nres=cv2.threshold(imtransformed2[:,:,1],1,255,cv2.THRESH_BINARY )
-
-
-    #num,newimg=cv2.connectedComponents(
-    #    im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],1])#nres)
-    #
-    #if num>2:
-    #    print("more than two")
-    #    print(num)
-    #    im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],:]=imog
-    #
-    #    return None,None,None
-
-
-
-
-
-    
-
-    #contours2, hierarchy2 = cv2.findContours(nres, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_KCOS)#, cv2.CHAIN_APPROX_SIMPLE)
-    #cont2=contours2[0][:,0,:][:,::-1]    
-    #cont2[:,0]+=offset[0]
-    #cont2[:,1]+=offset[1]
-    
-    #new_poly_points2=pixel_to_real(metadata[index1]["units_per_pixel"],
-    #                                     metadata[index1]["scan_rotation"],
-    #                                     metadata[index1]["anchor_point"],
-    #                                     cont2)
-    #polyg2=shapely.geometry.Polygon(new_poly_points2)
-    #pc2=polyg2.centroid.coords[0]
-    #print(pc2)
-    
-    #print(transl)
-    ##print(new_pos_points[0])
-    #print("meta pos2")
-    #print(metadata[index2]["position"])
-
-    thresh,nres=cv2.threshold(im1[t0low:t0up,t1low:t1up,1],1,255,cv2.THRESH_BINARY )
-
-    contours, hierarchy = cv2.findContours(nres, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_KCOS)#, cv2.CHAIN_APPROX_SIMPLE)
-    cont=contours[0][:,0,:][:,::-1]    
-    cont[:,0]+=t0low
-    cont[:,1]+=t1low
-    
-    new_poly_points=pixel_to_real(metadata[index1]["units_per_pixel"],
-                                         metadata[index1]["scan_rotation"],
-                                         metadata[index1]["anchor_point"],
-                                         cont)
-
-    
-    if len(new_poly_points)<4:
-        print("something wrong")
-        return None,None,None
-    if plotting:
-        plt.imshow(im1[:,:,1]>1)
-        plt.title("im1_after")
-        plt.show()
-    
-    params["im1shift"]=offset
-    return params,shapely.geometry.Polygon(new_poly_points),new_pos_point
-
-
-
-def stitch_by_overlap_translation2(im1,im2,index1,index2,metadata,level_lowe=0.5,
-                                  overlap_pad=0,correct_for_stitchpath=None,infolog=None,
-                                  plotting=False,maximal_transl=None,no_sift=False):
-
-    translation_only=True
-    if maximal_transl is None:
-        maximal_transl=np.sqrt(np.sum(np.array(im2.shape)**2))
-    #if len(im2.shape)==2:
-    #    im2=img_single_to_double_channel(im2)
-
-    if correct_for_stitchpath is None:
-        poly2=metadata[index2]["polygon"]
-    else:
-        #poly3=metadata[index2]["polygon"]
-        poly2=shapely.affinity.translate(metadata[index2]["polygon"],correct_for_stitchpath[0],correct_for_stitchpath[1])#1+
-
-    overlap=shapely.intersection(metadata[index1]["polygon"],poly2)
-    
-    overlap_coord=np.array(overlap.oriented_envelope.exterior.xy).T[:-1]
-
-
-    if plotting or len(overlap_coord)==0:
-        #p3p=-np.array(poly3.exterior.xy)
-        p2p=-np.array(poly2.exterior.xy)
-        p1p=-np.array(metadata[index1]["polygon"].exterior.xy)
-        if len(overlap_coord)==0:
-            pass
-        else:
-            pop=-np.array(overlap.exterior.xy)
-            plt.plot(pop[0],pop[1],'r')
-        
-        #plt.plot(p3p[0],p3p[1],'b')    
-        plt.plot(p2p[0],p2p[1],'g')
-        plt.plot(p1p[0],p1p[1],'k')
-        plt.axis("equal")
-        plt.show()
-
-    if len(overlap_coord)==0:
-        print("empty overlap")
-        #a=5/0
-        return None,None,None
-
-    #overlapcenter=np.array(overlap.centroid.coords[0])
-    #distances=np.empty(len(p2coord))
-    #for i in range(len(distances)):
-    #    distances[i]=np.sqrt(np.sum((p2coord[i]-overlapcenter)*(p2coord[i]-overlapcenter)))
-    #distance=np.max(distances)
-    #im1_points=np.empty([4,2])
-    #im1_points[0]=overlapcenter+np.array([distance,distance])
-    #im1_points[1]=overlapcenter+np.array([distance,-distance])
-    #im1_points[2]=overlapcenter+np.array([-distance,-distance])
-    #im1_points[3]=overlapcenter+np.array([-distance,distance])
-    #print(overlap_coord)
-    #print(overlapcenter)
-    #print(distance)
-    
-    
-
-    im1_coord=real_to_pixel(metadata[index1]["units_per_pixel"],
-                            metadata[index1]["scan_rotation"],
-                            metadata[index1]["anchor_point"],
-              np.array(metadata[index1]["polygon"].exterior.xy).T[:-1])
-    
-    im1_overlap_coord=real_to_pixel(metadata[index1]["units_per_pixel"],
-                            metadata[index1]["scan_rotation"],
-                            metadata[index1]["anchor_point"],
-                            overlap_coord)
-
-        
-    lower1=np.min(im1_overlap_coord,axis=0)-overlap_pad
-    upper1=np.max(im1_overlap_coord,axis=0)+overlap_pad
-
-    
-    #print(correct_for_stitchpath)
-    for i in range(len(overlap_coord)):
-        overlap_coord[i]-=correct_for_stitchpath
-        
-    im2_coord=real_to_pixel(metadata[index2]["units_per_pixel"],
-                            metadata[index2]["scan_rotation"],
-                            metadata[index2]["anchor_point"],
-                            overlap_coord)
-
-
-    lower2=np.min(im2_coord,axis=0)-overlap_pad
-    upper2=np.max(im2_coord,axis=0) +overlap_pad
-    im1_cropdim=upper1-lower1
-    im2_cropdim=upper2-lower2
-    
-    dimdiff=im2_cropdim-im1_cropdim
-    if np.sum(np.abs(dimdiff)>0):
-        print("dimdiff>0 some rounding")
-    if  dimdiff[0]<0:
-        lower1[0]+=1
-    elif dimdiff[0]>0:
-        lower2[0]+=1
-        
-    if  dimdiff[1]<0:
-        lower1[1]+=1
-    elif dimdiff[1]>0:
-        lower2[1]+=1
-
-    cropdim=upper2-lower2
-    
-    im2_cropped=np.zeros([cropdim[0],cropdim[1],2],dtype=np.uint8)
-    
-    offs2=np.zeros(2,dtype=int)
-    l2=np.zeros(2,dtype=int)
-    if lower2[0] < 0:
-        offs2[0]=-lower2[0]
-    else:
-        l2[0]=lower2[0]
-        
-    if lower2[1] < 0:
-        offs2[1]=-lower2[1]
-    else:
-        l2[1]=lower2[1]
-
-    ucpd=upper2-l2+offs2
-    if upper2[0]>metadata[index2]["dimensions"][0]:
-        ucpd[0]+=(metadata[index2]["dimensions"][0]-upper2[0])
-
-    if upper2[1]>metadata[index2]["dimensions"][1]:
-        ucpd[1]+=(metadata[index2]["dimensions"][1]-upper2[1])
-
-    im2_cropped[offs2[0]:ucpd[0],offs2[1]:ucpd[1],:]=im2[l2[0]:upper2[0],l2[1]:upper2[1],:]
-
-    im1_cropped=im1[lower1[0]:upper1[0],lower1[1]:upper1[1],:]
-    if im1_cropped.shape[0]!=im2_cropped.shape[0] or im1_cropped.shape[1]!=im2_cropped.shape[1]:
-        print("--------------------------------------------------------------------")
-        print("pad image1 before (phase_correlation)")
-        return None,None,None
-    if no_sift:
-        sift_pts1=np.zeros(2)
-    else:
-        try:
-            sift_pts1,sift_pts2 = sift_align_matches(im1_cropped[:,:,0],im2_cropped[:,:,0],level_lowe) #clipped
-        except:
-            sift_pts1=np.zeros(2)
-
-        
-    if len(sift_pts1)<4:
-        print("no sift matches found")
-        sift_pts1,sift_pts2=make_point_translation(np.zeros(2))
-    else:
-        sift_pts2[:,0]+=lower2[1]
-        sift_pts2[:,1]+=lower2[0]
-        transl_sift=np.median(sift_pts1-sift_pts2,axis=0)[::-1]
-        sift_pts1,sift_pts2=make_point_translation(transl_sift)
-
-        
-    #transl=phase_cross_correlation(im1_cropped[:,:,0],im2_cropped[:,:,0],
-    #                               reference_mask=im1_cropped[:,:,1]>1, 
-    #                               moving_mask=im2_cropped[:,:,1]>1,
-    #                               disambiguate=True)[0]
-    
-    transl,certainty=close_translation_by_phase_correlation(im1_cropped[:,:,0],im2_cropped[:,:,0])
-    
-    #if trans
-    if np.sqrt(np.sum(transl**2))>maximal_transl:
-        print(np.sqrt(np.sum(transl**2)))
-        print(transl)
-        transl=np.zeros(2)
-        print("translation bigger than maximal")
-    
-    pts1,pts2=make_point_translation(transl)
-    pts2[:,0]+=lower2[1]
-    pts2[:,1]+=lower2[0]
-    
-
-    imtransformed,params = align_pair_special(im1_cropped,im2,pts1,pts2,
-                                              translation_only=translation_only)
-    if no_sift:
-        ssim2=-np.inf
-    else:
-        imtransformed2,params2 = align_pair_special(im1_cropped,im2,sift_pts1,sift_pts2,
-                                              translation_only=translation_only)
-        offset2=lower1-params2["im1shift"]
-        if offset2[0]<0 or offset2[1]<0:#correct_negative0>0 or correct_negative1>0:
-            print("offset2--------------------------------------------------------------------")
-            print("pad image1 before")
-            return None,None,None
-        
-        imog2=im1[offset2[0]:offset2[0]+imtransformed2.shape[0],offset2[1]:offset2[1]+imtransformed2.shape[1],:]
-        new2=img_add_weighted_gray_alpha(imog2,imtransformed2)    
-
-        imgbool2num=1*((imog2[:,:,1].astype(np.uint16)*new2[:,:,1].astype(np.uint16))>0)
-        im2check=img_to_uint8_fast(imgbool2num*new2[:,:,0])
-        im_orig_check2=img_to_uint8_fast(imgbool2num*imog2[:,:,0])
-
-        ssim2=skimage.metrics.structural_similarity(im_orig_check2, im2check)
-
-
-    offset=lower1-params["im1shift"]
-
-    if offset[0]<0 or offset[1]<0:#correct_negative0>0 or correct_negative1>0:
-        print("offset--------------------------------------------------------------------")
-        print("pad image1 before")
-        return None,None,None
-
-    imog=im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],:]
-    
-    new1=img_add_weighted_gray_alpha(imog,imtransformed)
-    
-
-    imgbool1num=1*((imog[:,:,1].astype(np.uint16)*new1[:,:,1].astype(np.uint16))>0)
-    im_orig_check1=img_to_uint8_fast(imgbool1num*imog[:,:,0])
-    im1check=img_to_uint8_fast(imgbool1num*new1[:,:,0])
-
-
-    ssim1=skimage.metrics.structural_similarity(im_orig_check1, im1check)
-    
-    #plt.imshow(im1check)
-    #plt.show()
-    #plt.imshow(im2check)
-    #plt.show()
-    
-    #print(ssim1)
-    #print(ssim2)
-
-    
-    if ssim2>ssim1:
-        correlation_better=False
-    else:
-        correlation_better=True
-        
-    if correlation_better:
-        print("phase correlation")
-        print(params)
-        print(transl)
-
-        
-        im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],:]=new1
-        t0low=min(offset[0],lower1[0],np.min(im1_coord[:,0]))
-        t1low=min(offset[1],lower1[1],np.min(im1_coord[:,1]))
-        t0up=max(offset[0]+imtransformed.shape[0],upper1[0],np.max(im1_coord[:,0]))
-        t1up=max(offset[1]+imtransformed.shape[1],upper1[1],np.max(im1_coord[:,1]))
-
-        newpos=np.empty([1,2])
-        newpos[0]=offset+np.array(imtransformed.shape)[:2]/2
-        new_pos_point=pixel_to_real(metadata[index1]["units_per_pixel"],
-                                             metadata[index1]["scan_rotation"],
-                                             metadata[index1]["anchor_point"],
-                                             newpos)[0]
-        
-        #thresh,nres=cv2.threshold(imtransformed[:,:,1],1,255,cv2.THRESH_BINARY )
-
-    else:
-        print("feature matching")
-        print(params2)
-        im1[offset2[0]:offset2[0]+imtransformed2.shape[0],offset2[1]:offset2[1]+imtransformed2.shape[1],:]=new2
-        t0low=min(offset2[0],lower1[0],np.min(im1_coord[:,0]))
-        t1low=min(offset2[1],lower1[1],np.min(im1_coord[:,1]))
-        t0up=max(offset2[0]+imtransformed2.shape[0],upper1[0],np.max(im1_coord[:,0]))
-        t1up=max(offset2[1]+imtransformed2.shape[1],upper1[1],np.max(im1_coord[:,1]))
-        
-        newpos=np.empty([1,2])
-        newpos[0]=offset2+np.array(imtransformed2.shape)[:2]/2
-        new_pos_point=pixel_to_real(metadata[index1]["units_per_pixel"],
-                                             metadata[index1]["scan_rotation"],
-                                             metadata[index1]["anchor_point"],
-                                             newpos)[0]
-        
-        #thresh,nres=cv2.threshold(imtransformed2[:,:,1],1,255,cv2.THRESH_BINARY )
-
-
-    #num,newimg=cv2.connectedComponents(
-    #    im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],1])#nres)
-    #
-    #if num>2:
-    #    print("more than two")
-    #    print(num)
-    #    im1[offset[0]:offset[0]+imtransformed.shape[0],offset[1]:offset[1]+imtransformed.shape[1],:]=imog
-    #
-    #    return None,None,None
-
-
-
-
-
-    
-
-    #contours2, hierarchy2 = cv2.findContours(nres, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_KCOS)#, cv2.CHAIN_APPROX_SIMPLE)
-    #cont2=contours2[0][:,0,:][:,::-1]    
-    #cont2[:,0]+=offset[0]
-    #cont2[:,1]+=offset[1]
-    
-    #new_poly_points2=pixel_to_real(metadata[index1]["units_per_pixel"],
-    #                                     metadata[index1]["scan_rotation"],
-    #                                     metadata[index1]["anchor_point"],
-    #                                     cont2)
-    #polyg2=shapely.geometry.Polygon(new_poly_points2)
-    #pc2=polyg2.centroid.coords[0]
-    #print(pc2)
-    
-    #print(transl)
-    ##print(new_pos_points[0])
-    #print("meta pos2")
-    #print(metadata[index2]["position"])
-
-    thresh,nres=cv2.threshold(im1[t0low:t0up,t1low:t1up,1],1,255,cv2.THRESH_BINARY )
-
-    contours, hierarchy = cv2.findContours(nres, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_KCOS)#, cv2.CHAIN_APPROX_SIMPLE)
-    cont=contours[0][:,0,:][:,::-1]    
-    cont[:,0]+=t0low
-    cont[:,1]+=t1low
-    
-    new_poly_points=pixel_to_real(metadata[index1]["units_per_pixel"],
-                                         metadata[index1]["scan_rotation"],
-                                         metadata[index1]["anchor_point"],
-                                         cont)
-
-    if len(new_poly_points)<4:
-        print("something wrong")
-        return None,None,None
-    if plotting:
-        plt.imshow(im1[:,:,1]>1)
-        plt.title("im1_after")
-        plt.show()
-    
-    params["im1shift"]=offset
-    return params,shapely.geometry.Polygon(new_poly_points),new_pos_point
-
-
-def make_point_translation(transl):
-    pts1=np.zeros([4,2])#,dtype=int)
-    pts1[0]=0,0
-    pts1[1]=2,0
-    pts1[2]=2,2
-    pts1[3]=0,2
-    pts2=np.zeros([4,2])#,dtype=int)
-    for i in range(4):
-        pts2=pts1-transl[::-1]
-    coffs=np.min(pts2,axis=0)
-    for i in range(4):
-        pts1[i]-=coffs
-        pts2[i]-=coffs
-    return pts1,pts2
+            return pcm_distances
+
+    @staticmethod
+    def _residuals(posflat,edge_tuples,pcm_distances):
+        n=int(len(posflat)//2)
+        pts = posflat.reshape(n, 2)
+        r = []
+
+        for i, j in edge_tuples:
+            r.append( np.linalg.norm(pts[j] - pts[i]- pcm_distances[i, j]))
+
+        return np.array(r)
+
+    def optimize_positions(self):
+        x0=np.ravel(self.positions)
+        result = least_squares(
+            self._residuals,
+            x0,
+            args=(self.edge_tuples,self.pcm_distances),
+            method='trf'
+        )
+
+        final=result.x.reshape(len(self.positions),2)
+
+        moved_polygons = [
+            shapely.affinity.translate(poly, xoff=px - poly.centroid.x, yoff=py - poly.centroid.y)
+            for poly, (px, py) in zip(self.polygons, final)
+        ]
+        return moved_polygons
+
+
+    def map_from_polygons(self,polygons):
+        start_index=0
+        outer_realspace=self.get_outer_polygon_limits(polygons)
+        pixelouter=self.real_to_pixel(start_index,outer_realspace)
+        pixelouter=np.round(pixelouter).astype(int)
+        offset_x_y=-np.min(pixelouter,axis=0)
+        image_dims=np.max(pixelouter,axis=0)+offset_x_y
+
+        division_mask=np.zeros(image_dims,dtype=np.uint8)
+        image=np.zeros(image_dims)
+        for index,poly in enumerate(polygons):
+            np_realspace=np.array(poly.oriented_envelope.exterior.xy).T[:-1]
+            np_pixelspace=np.round(self.real_to_pixel(start_index,np_realspace)).astype(int)
+            image_pixelspace=np_pixelspace+offset_x_y
+            img=self.get_img(index)
+            img_start=np.min(image_pixelspace,axis=0)
+            img_end=np.max(image_pixelspace,axis=0)
+            image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img
+            division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=1
+            #if index>3:
+            #    break
+        #image[:,:,1][image[:,:,1]==0]=1
+        division_mask[division_mask==0]=1
+        image[:,:]/=division_mask#image[:,:,1]
+        return image
