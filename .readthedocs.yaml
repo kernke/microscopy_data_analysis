@@ -6,10 +6,10 @@ version: 2
 
 # Set the version of Python and other tools you might need
 build:
-  os:  ubuntu-22.04
+  os:  ubuntu-24.04
   #Windows-10-10.0.19045
   tools:
-    python: "3.10"
+    python: "3.11"
 
 # Path to sphinx's configuration file
 sphinx:
