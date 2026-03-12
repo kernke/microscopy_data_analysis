@@ -8,9 +8,9 @@ import matplotlib.pyplot as plt
 from copy import deepcopy
 from .general_util import peak_com2d
 from .image_processing import img_periodic_tiling,img_to_uint16,img_to_half_int16
-from .image_processing import img_add_weighted_rgba,img_gray_to_rgba
+from .image_processing import img_add_weighted_rgba,img_gray_to_rgba,padding_attenuation
 
-#%% phase_correlation
+#%% phase_correlation (deprecated)
 def phase_correlation(a, b):
     """
     calculate the pase correlation between two images a,b
@@ -28,13 +28,58 @@ def phase_correlation(a, b):
             phase correlation matrix.
 
     """
-    G_a = np.fft.fft2(a)
-    G_b = np.fft.fft2(b)
+    M,N=np.shape(a)
+    padval=int(max(M,N)//4)
+    #padval=max(M,N)
+    pa=np.pad(a,padval,mode="reflect")
+    pb=np.pad(b,padval,mode="reflect")
+    pa=padding_attenuation(pa,padval,mode="exponential",parameters={"lambda":4})
+    pb=padding_attenuation(pb,padval,mode="exponential",parameters={"lambda":4})
+    G_a = np.fft.rfft2(pa)#np.pad(a,padval,mode="median"))
+    G_b = np.fft.rfft2(pb)#np.pad(b,padval,mode="median"))
     conj_b = np.ma.conjugate(G_b)
     R = G_a * conj_b
     R /= np.absolute(R)
-    r = np.fft.ifft2(R).real
+    r = np.fft.irfft2(R).real
     return r
+
+#%% phase_and cross_correlation
+def phase_and_cross_correlation(a, b):
+    """
+    calculate the pase correlation between two images a,b
+    with same shape MxN (containing only real numbers)
+
+    Args:
+        a (MxN array_like): 
+            first image.
+        
+        b (MxN array_like): 
+            second image.
+
+    Returns:
+        r (MxN array_like): 
+            phase correlation matrix.
+
+    """
+    M,N=np.shape(a)
+    padval=int(max(M,N)//4)
+    #padval=max(M,N)
+    
+    pa=np.pad(a-np.mean(a),padval,mode="mean",stat_length=padval)
+    pb=np.pad(b-np.mean(b),padval,mode="mean",stat_length=padval)
+    pa=padding_attenuation(pa,padval,mode="linear")#,parameters={"end_value":np.mean(a)})
+    pb=padding_attenuation(pb,padval,mode="linear")
+
+    #G_a = np.fft.rfft2(np.pad(a,padval,mode="median"))
+    #G_b = np.fft.rfft2(np.pad(b,padval,mode="median"))
+    G_a = np.fft.rfft2(pa)
+    G_b = np.fft.rfft2(pb)
+    conj_b = np.ma.conjugate(G_b)
+    R = G_a * conj_b
+    phaseR = R/np.absolute(R)
+    cross_r = np.fft.irfft2(R).real
+    phase_r = np.fft.irfft2(phaseR).real
+    return phase_r,cross_r
 
 #%% max_from_2d
 def max_from_2d(A):

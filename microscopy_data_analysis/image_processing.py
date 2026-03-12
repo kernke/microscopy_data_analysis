@@ -6,9 +6,95 @@ take an image as main input and return a processed image
 import cv2
 import numpy as np
 from skimage import  exposure
-import copy
 from numba import njit
 from numba import prange
+from scipy.special import erf
+import matplotlib.pyplot as plt
+
+from collections.abc import Iterable
+import copy
+#%% padding manipulation
+
+def padding_attenuation(padded_img,pad_width,mode="linear",parameters=dict(),plot=False):
+    """extending the functionality of np.pad (following same syntax: pad_width) or cv2.copyMakeBorder
+    allowing custom attenuation (value reduction towards 0) of added padding (borders)
+    
+    modes: 'linear', 'exponential', 'inverse_exponential' and 'sigmoid_normalCDF'
+    """
+    if not isinstance(pad_width, Iterable):
+        pw=pad_width,pad_width,pad_width,pad_width
+    elif not isinstance(pad_width[0], Iterable):
+        pw=pad_width[0],pad_width[1],pad_width[0],pad_width[1]
+    else:
+        pw=pad_width[0][0],pad_width[0][1],pad_width[1][0],pad_width[1][1]
+
+    imgshape=padded_img.shape
+
+    seqs=[]
+    if mode=="linear":
+        if "end_value" not in parameters:
+            parameters["end_value"]=0
+        
+        for i in range(4):
+            seqs.append(np.linspace(1,parameters["end_value"],pw[i]))
+            
+    if mode=="exponential" or mode=="inverse_exponential":
+        if "end_value" not in parameters:
+            parameters["end_value"]=0
+        if "lambda" not in parameters:
+            parameters["lambda"]=3  
+
+        for i in range(4):
+            seq=np.exp(-np.linspace(0,parameters["lambda"],pw[i]))
+            factor=(1-parameters["end_value"])/(1-seq[-1])
+            seq*=factor
+            seq-=seq[-1]-parameters["end_value"]
+            seqs.append(seq)                
+        
+
+    if mode=="inverse_exponential":
+        for i in range(4):
+            seqs[i]=1+parameters["end_value"]-seqs[i][::-1]
+
+    if mode=="sigmoid_normalCDF":
+        if "end_value" not in parameters:
+            parameters["end_value"]=0
+        if "sigma" not in parameters:
+            parameters["sigma"]=0.5  
+
+        for i in range(4):
+            seq=np.linspace(1,-1,pw[i])
+            seq=0.5+0.5*erf(seq/(np.sqrt(2)*parameters["sigma"]))
+            factor=(1-parameters["end_value"])/(1-2*seq[-1])
+            seq*=factor
+            seq-=seq[-1]-parameters["end_value"]
+            seqs.append(seq)
+
+    if plot:
+        width=np.min([len(seq) for seq in seqs])
+        plt.plot(np.arange(len(seqs[0]))[::-1],seqs[0],c="r")
+        plt.plot(np.arange(len(seqs[2]))[::-1],seqs[2],c="b")
+        
+        plt.plot(np.arange(width)+len(seqs[0]),np.ones(width),'--',c='r',alpha=0.5)
+        plt.plot(np.arange(width)+len(seqs[2]),np.ones(width),'-.',c="b",alpha=0.5)
+        plt.plot(np.arange(len(seqs[1]))+len(seqs[0])+width,seqs[1],c="r",label="vertical")
+        plt.plot(np.arange(len(seqs[3]))+len(seqs[2])+width,seqs[3],c="b",label="horizontal")
+        plt.legend()
+
+    n_cols=imgshape[1]
+    b_up = np.tile(seqs[0][::-1, None], (1, n_cols))
+    b_down= np.tile(seqs[1][:, None], (1, n_cols))
+    n_rows=imgshape[0]
+    b_left = np.tile(seqs[2][None,::-1], ( n_rows,1))
+    b_right = np.tile(seqs[3][None,:], ( n_rows,1))
+    
+    atten_img=padded_img*1.
+    atten_img[-pw[1]:,:]*=b_down
+    atten_img[:,-pw[3]:]*=b_right
+    atten_img[:pw[0],:]*=b_up
+    atten_img[:,:pw[2]]*=b_left
+    
+    return atten_img
 
 #%% autoclipping
 def img_autoclip(img,ratio=0.001):
