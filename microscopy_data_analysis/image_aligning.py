@@ -1365,7 +1365,7 @@ def points_on_image(image):
 
 #%% click
 def click(event):
-    global list_of_points
+    #global list_of_points
 
     if event.button == 3:  # right clicking
 
