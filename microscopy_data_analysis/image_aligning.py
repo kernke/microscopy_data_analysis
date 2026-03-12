@@ -10,7 +10,7 @@ from .general_util import peak_com2d
 from .image_processing import img_periodic_tiling,img_to_uint16,img_to_half_int16
 from .image_processing import img_add_weighted_rgba,img_gray_to_rgba,padding_attenuation
 
-#%% phase_correlation (deprecated)
+#%% phase_correlation
 def phase_correlation(a, b):
     """
     calculate the pase correlation between two images a,b
@@ -43,6 +43,31 @@ def phase_correlation(a, b):
     r = np.fft.irfft2(R).real
     return r
 
+#%% plain phase correlation
+def phase_correlation(a, b):
+    """
+    calculate the pase correlation between two images a,b
+    with same shape MxN
+
+    Args:
+        a (MxN array_like): 
+            first image.
+        
+        b (MxN array_like): 
+            second image.
+
+    Returns:
+        r (MxN array_like): 
+            phase correlation matrix.
+
+    """
+    G_a = np.fft.rfft2(a)
+    G_b = np.fft.rfft2(b)
+    conj_b = np.ma.conjugate(G_b)
+    R = G_a * conj_b
+    R /= np.absolute(R)
+    r = np.fft.irfft2(R).real
+    return r
 #%% phase_and cross_correlation
 def phase_and_cross_correlation(a, b):
     """
