@@ -44,7 +44,7 @@ def phase_correlation(a, b):
     return r
 
 #%% plain phase correlation
-def phase_correlation(a, b):
+def plain_phase_correlation(a, b):
     """
     calculate the pase correlation between two images a,b
     with same shape MxN
