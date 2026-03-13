@@ -8,6 +8,7 @@ import shapely
 import os
 import networkx as nx
 from scipy.optimize import least_squares
+from scipy.sparse import lil_matrix
 import imagesize
 
 from .image_processing import img_to_uint8
@@ -537,23 +538,30 @@ class stitching_object:
 
         return np.array(r)
 
-    def optimize_positions(self,sparsity=None):
+    def optimize_positions(self):
+
+        n_res = len(self.edge_tuples)
+        n_var = len(self.positions)*2
+
+        S = lil_matrix((n_res, n_var))
+
+        counter=0
+        for i,j in self.edge_tuples:
+            S[counter,2*i]=1
+            S[counter,2*i+1]=1
+            S[counter,2*j]=1
+            S[counter,2*j+1]=1
+            counter+=1
+
         x0=np.ravel(self.positions)
-        if sparsity is None:
-            result = least_squares(
-                self._residuals,
-                x0,
-                args=(self.edge_tuples,self.pcm_distances),
-                method='trf'
-            )
-        else:
-            result = least_squares(
-                self._residuals,
-                x0,
-                jac_sparsity=sparsity,
-                args=(self.edge_tuples,self.pcm_distances),
-                method='trf'
-            )
+
+        result = least_squares(
+            self._residuals,
+            x0,
+            jac_sparsity=S,
+            args=(self.edge_tuples,self.pcm_distances),
+            method='trf'
+        )
 
 
         final=result.x.reshape(len(self.positions),2)

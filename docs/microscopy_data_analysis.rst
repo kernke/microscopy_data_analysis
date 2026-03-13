@@ -37,6 +37,14 @@ microscopy\_data\_analysis.image\_aligning module
    :undoc-members:
    :show-inheritance:
 
+microscopy\_data\_analysis.stitching module
+--------------------------------------------------
+
+.. automodule:: microscopy_data_analysis.stitching
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 microscopy\_data\_analysis.image\_processing module
 ----------------------------------------------------
 

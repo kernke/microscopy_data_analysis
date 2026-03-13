@@ -6,12 +6,15 @@ Microscopy data most of the times relates to images (i.e., 2D-data). However, so
 
 Main features are:
 
- stitching images on a grid
+ stitching images
  
  stack aligning
  
  line detection
  
+
+Documentation: https://microscopy-data-analysis.readthedocs.io
+
 # Installation
 After changing into the directory containing setup.py , install via 
 
@@ -19,8 +22,10 @@ After changing into the directory containing setup.py , install via
     pip install .  
 
 
-Documentation: https://microscopy-data-analysis.readthedocs.io
-
+# Optional
 To make sure everything works fine, tests can be executed by typing
 
     pytest
+
+For building the documentation, for which Pandoc is needed (https://pandoc.org/installing.html),
+execute /docs/make.bat 
