@@ -10,6 +10,7 @@ build:
   #Windows-10-10.0.19045
   tools:
     python: "3.11"
+  #"3.12"
 
 # Path to sphinx's configuration file
 sphinx:

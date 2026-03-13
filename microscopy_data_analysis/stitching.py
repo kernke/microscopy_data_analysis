@@ -537,14 +537,24 @@ class stitching_object:
 
         return np.array(r)
 
-    def optimize_positions(self):
+    def optimize_positions(self,sparsity=None):
         x0=np.ravel(self.positions)
-        result = least_squares(
-            self._residuals,
-            x0,
-            args=(self.edge_tuples,self.pcm_distances),
-            method='trf'
-        )
+        if sparsity is None:
+            result = least_squares(
+                self._residuals,
+                x0,
+                args=(self.edge_tuples,self.pcm_distances),
+                method='trf'
+            )
+        else:
+            result = least_squares(
+                self._residuals,
+                x0,
+                jac_sparsity=sparsity,
+                args=(self.edge_tuples,self.pcm_distances),
+                method='trf'
+            )
+
 
         final=result.x.reshape(len(self.positions),2)
 
@@ -555,7 +565,7 @@ class stitching_object:
         return moved_polygons
 
 
-    def map_from_polygons(self,polygons):
+    def map_from_polygons(self,polygons,cut=True):
         start_index=0
         outer_realspace=self.get_outer_polygon_limits(polygons)
         pixelouter=self.real_to_pixel(start_index,outer_realspace)
@@ -572,8 +582,17 @@ class stitching_object:
             img=self.get_img(index)
             img_start=np.min(image_pixelspace,axis=0)
             img_end=np.max(image_pixelspace,axis=0)
-            image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img
-            division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=1
+
+            if cut:
+                image[img_start[0]:img_start[0]+img.shape[0],img_start[1]:img_start[1]+img.shape[1]]=img
+                
+            else:
+                image[img_start[0]:img_start[0]+img.shape[0],img_start[1]:img_start[1]+img.shape[1]]+=img
+                division_mask[img_start[0]:img_start[0]+img.shape[0],img_start[1]:img_start[1]+img.shape[1]]+=1
+
+
+            #image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img
+            #division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=1
             #if index>3:
             #    break
         #image[:,:,1][image[:,:,1]==0]=1
