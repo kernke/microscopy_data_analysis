@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from copy import deepcopy
 from .general_util import peak_com2d
 from .image_processing import img_periodic_tiling,img_to_uint16,img_to_half_int16
-from .image_processing import img_add_weighted_rgba,img_gray_to_rgba,padding_attenuation
+from .image_processing import img_add_weighted_rgba,img_gray_to_rgba,img_padding_attenuation
 
 #%% phase_correlation
 def phase_correlation(a, b):
@@ -33,8 +33,8 @@ def phase_correlation(a, b):
     #padval=max(M,N)
     pa=np.pad(a,padval,mode="reflect")
     pb=np.pad(b,padval,mode="reflect")
-    pa=padding_attenuation(pa,padval,mode="exponential",parameters={"lambda":4})
-    pb=padding_attenuation(pb,padval,mode="exponential",parameters={"lambda":4})
+    pa=img_padding_attenuation(pa,padval,mode="exponential",parameters={"lambda":4})
+    pb=img_padding_attenuation(pb,padval,mode="exponential",parameters={"lambda":4})
     G_a = np.fft.rfft2(pa)#np.pad(a,padval,mode="median"))
     G_b = np.fft.rfft2(pb)#np.pad(b,padval,mode="median"))
     conj_b = np.conjugate(G_b)
@@ -92,8 +92,8 @@ def phase_and_cross_correlation(a, b):
     
     pa=np.pad(a-np.mean(a),padval,mode="mean",stat_length=padval)
     pb=np.pad(b-np.mean(b),padval,mode="mean",stat_length=padval)
-    pa=padding_attenuation(pa,padval,mode="linear")#,parameters={"end_value":np.mean(a)})
-    pb=padding_attenuation(pb,padval,mode="linear")
+    pa=img_padding_attenuation(pa,padval,mode="linear")#,parameters={"end_value":np.mean(a)})
+    pb=img_padding_attenuation(pb,padval,mode="linear")
 
     #G_a = np.fft.rfft2(np.pad(a,padval,mode="median"))
     #G_b = np.fft.rfft2(np.pad(b,padval,mode="median"))

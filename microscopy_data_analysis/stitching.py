@@ -10,16 +10,18 @@ import networkx as nx
 from scipy.optimize import least_squares
 from scipy.sparse import lil_matrix
 import imagesize
+from tqdm import tqdm
 
 from .image_processing import img_to_uint8
-from .image_aligning import phase_correlation,max_from_2d
+from .image_aligning import phase_correlation,max_from_2d,img_padding_attenuation
 
 
 class stitching_object:
     def __init__(self,mode="memory",no_print=False):
         """mode can either be 'memory' or 'storage'
         "memory" is the default, assuming the image series being loaded into the RAM
-        "storage" is suitable for larger file sizes, when not all images simultaneously fit into the RAM"""
+        "storage" is suitable for larger file sizes, when not all images simultaneously fit into the RAM
+        (storage supports images as .tif, .png ... or as multiple files in .h5 or as datacube in .h5)"""
         self.mode=mode
         self.no_print=no_print
         self.directory=None
@@ -51,7 +53,22 @@ class stitching_object:
         with h5py.File(self.directory,'r') as h5:
             datashape=h5[dataset_name].shape
             self.img_list=np.arange(datashape[0])
-                    
+
+    def change_img_list(self,mode="memory",no_print=False):
+        """mode can either be 'memory' or 'storage'
+        "memory" is the default, assuming the image series being loaded into the RAM
+        "storage" is suitable for larger file sizes, when not all images simultaneously fit into the RAM
+        (storage supports images as .tif, .png ... or as multiple files in .h5 or as datacube in .h5)"""      
+        self.mode=mode
+        self.directory=None
+        if not no_print:
+            if mode == "storage":
+                print("For .h5 provide the path to the h5-file (that serves as h5-directory) via the 'set_directory_path' method")
+                print("For .tif, .png, ... image files either provide the folder via 'set_directory_path' or a list of filepaths via 'set_img_list'") 
+            if mode == "memory":
+                print("please provide the images, as a list of images via 'set_img_list'")
+
+
     def set_img_list(self,img_list):
 
         if self.directory is None:
@@ -173,14 +190,22 @@ class stitching_object:
         self.dust_dict
         return last
 
-    def dust_removal(self,img):
+    def dust_removal(self,img,mode="median"):
         #needs temp data
         result=np.copy(img)
         for i in self.dust_dict:
             if len(self.dust_dict[i][1][0])<1:
                 print("Warning: empty ring")
-            ring_median=np.median(img[self.dust_dict[i][1]])
-            result[self.dust_dict[i][0]]=ring_median
+            if mode=="median":
+                ring_values=np.median(img[self.dust_dict[i][1]])
+            elif mode=="mean":        
+                ring_values=np.mean(img[self.dust_dict[i][1]])
+            elif mode=="normal":
+                ring_values=np.mean(img[self.dust_dict[i][1]])
+                ring_std=np.std(img[self.dust_dict[i][1]],mean=ring_values)
+                ring_values=np.random.normal(ring_values,ring_std,len(img[self.dust_dict[i][1]]))
+            
+            result[self.dust_dict[i][0]]=ring_values
         return result
     
     def dust_removal_all(self):
@@ -477,7 +502,7 @@ class stitching_object:
             croplist2=[]
         pairs=np.array(self.G.edges())
         
-        for pair in pairs:
+        for pair in tqdm(pairs):
 
             index1=pair[0]
             index2=pair[1]
@@ -538,7 +563,7 @@ class stitching_object:
 
         return np.array(r)
 
-    def optimize_positions(self):
+    def optimize_positions(self,verbose=True):
 
         n_res = len(self.edge_tuples)
         n_var = len(self.positions)*2
@@ -554,13 +579,18 @@ class stitching_object:
             counter+=1
 
         x0=np.ravel(self.positions)
+        if verbose:
+            verbose_level=2
+        else:
+            verbose_level=0
 
         result = least_squares(
             self._residuals,
             x0,
             jac_sparsity=S,
             args=(self.edge_tuples,self.pcm_distances),
-            method='trf'
+            method='trf',
+            verbose=verbose_level
         )
 
 
@@ -573,7 +603,8 @@ class stitching_object:
         return moved_polygons
 
 
-    def map_from_polygons(self,polygons,cut=True):
+    def map_from_polygons_h5(self,polygons,h5file="temp.h5",blending="average",custom_mask=None):
+
         start_index=0
         outer_realspace=self.get_outer_polygon_limits(polygons)
         pixelouter=self.real_to_pixel(start_index,outer_realspace)
@@ -581,29 +612,164 @@ class stitching_object:
         offset_x_y=-np.min(pixelouter,axis=0)
         image_dims=np.max(pixelouter,axis=0)+offset_x_y
 
-        division_mask=np.zeros(image_dims,dtype=np.uint8)
+        with h5py.File(h5file, "a") as f:
+            division_mask = f.create_dataset(
+                        "mask",
+                        shape=image_dims,
+                        dtype="float32",
+                        chunks=(512, 512),
+                        fillvalue=0   
+                    )
+            image = f.create_dataset(
+                        "data",
+                        shape=image_dims,
+                        dtype="float32",
+                        chunks=(512, 512),
+                        fillvalue=0   
+                    )
+
+            chunk_rows, chunk_cols = image.chunks
+
+
+
+            for index,poly in enumerate(polygons):
+                np_realspace=np.array(poly.oriented_envelope.exterior.xy).T[:-1]
+                np_pixelspace=np.round(self.real_to_pixel(start_index,np_realspace)).astype(int)
+                image_pixelspace=np_pixelspace+offset_x_y
+                img=self.get_img(index)
+                img_start=np.min(image_pixelspace,axis=0)
+                #img_end=np.max(image_pixelspace,axis=0)
+                img_end=img_start+img.shape
+
+                if blending=="average":
+                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img
+                    division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=1
+
+
+
+            n_rows, n_cols = image.shape
+            for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows"):
+                row_end = min(row_start + chunk_rows, n_rows)
+
+                # loop over column chunks
+                for col_start in range(0, n_cols, chunk_cols):
+                    col_end = min(col_start + chunk_cols, n_cols)
+                    
+                    divider=division_mask[row_start:row_end, col_start:col_end]
+                    divider[divider==0]=1
+                    # slice the 2D chunk
+                    image[row_start:row_end, col_start:col_end] = image[row_start:row_end, col_start:col_end]/divider
+          
+
+
+    def map_from_polygons(self,polygons,blending="average",custom_mask=None):
+        start_index=0
+        outer_realspace=self.get_outer_polygon_limits(polygons)
+        pixelouter=self.real_to_pixel(start_index,outer_realspace)
+        pixelouter=np.round(pixelouter).astype(int)
+        offset_x_y=-np.min(pixelouter,axis=0)
+        image_dims=np.max(pixelouter,axis=0)+offset_x_y
+
+
+        division_mask=np.zeros(image_dims)#,dtype=np.uint8)
         image=np.zeros(image_dims)
+   
+        if blending=="minimum":
+            image += np.inf
+
         for index,poly in enumerate(polygons):
             np_realspace=np.array(poly.oriented_envelope.exterior.xy).T[:-1]
             np_pixelspace=np.round(self.real_to_pixel(start_index,np_realspace)).astype(int)
             image_pixelspace=np_pixelspace+offset_x_y
             img=self.get_img(index)
             img_start=np.min(image_pixelspace,axis=0)
-            img_end=np.max(image_pixelspace,axis=0)
+            #img_end=np.max(image_pixelspace,axis=0)
+            img_end=img_start+img.shape
 
-            if cut:
-                image[img_start[0]:img_start[0]+img.shape[0],img_start[1]:img_start[1]+img.shape[1]]=img
-                
-            else:
-                image[img_start[0]:img_start[0]+img.shape[0],img_start[1]:img_start[1]+img.shape[1]]+=img
-                division_mask[img_start[0]:img_start[0]+img.shape[0],img_start[1]:img_start[1]+img.shape[1]]+=1
+            if blending=="hard_cut":
+                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=img
+            elif blending=="maximum":
+                stack=np.empty([img.shape[0],img.shape[1],2])
+                stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
+                stack[:,:,1]=img
+                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.max(stack,axis=-1)
+            elif blending=="minimum":
+                stack=np.empty([img.shape[0],img.shape[1],2])
+                stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
+                stack[:,:,1]=img
+                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.min(stack,axis=-1)
+            elif blending=="linear":
+                blending_helper=np.ones(img.shape)     
+                imshape=np.array(img.shape)
+                blending_helper=img_padding_attenuation(blending_helper,imshape//2,mode="linear")   
+                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*blending_helper
+                division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=blending_helper 
+            elif blending=="quadratic":
+                blending_helper=np.ones(img.shape)     
+                imshape=np.array(img.shape)
+                blending_helper=img_padding_attenuation(blending_helper,imshape,mode="linear")   
+                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*blending_helper
+                division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=blending_helper 
+            elif blending=="average":
+                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img
+                division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=1
+
+            elif blending=="custom_single":
+                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*custom_mask
+                division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=custom_mask
+            elif blending=="custom_multi":  
+                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*custom_mask[index]
+                division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=custom_mask[index]
 
 
-            #image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img
-            #division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=1
-            #if index>3:
-            #    break
-        #image[:,:,1][image[:,:,1]==0]=1
+        if blending=="minimum":
+            image[image==np.inf]=0
+
         division_mask[division_mask==0]=1
-        image[:,:]/=division_mask#image[:,:,1]
+        image[:,:]/=division_mask
         return image
+
+    def z_transform_images(self,h5file="temp.h5",offset_positive=True):
+        new_img_list=[]
+        most_negative=0
+        if self.mode=="memory":
+            for img in self.img_list:
+                mean=np.mean(img)
+                std=np.std(img)
+                z_trans=(img-mean)/std
+                new_img_list.append(z_trans)
+                most_negative=min(most_negative,np.min(z_trans))
+ 
+            if offset_positive:
+                for i in range(len(self.img_list)):
+                    new_img_list[i] -= most_negative
+
+        else:
+            self.temp_file=h5file
+            with h5py.File(h5file, "a") as f:
+                if "z_transform_name_list" in f:
+                    del f["z_transform_name_list"]    
+                f["z_transform_name_list"]=self.img_list
+                maxnum=len(self.img_list)
+                zfillnum=int(np.ceil(np.log10(maxnum)))
+                for i in range(len(self.img_list)):
+                    num=str(i).zfill(zfillnum)
+                    img=self.get_img(i)
+                    minimum=np.min(img)
+                    mean=np.mean(img)
+                    std=np.std(img)
+                    if "z_transform/"+num in f:
+                        del f["z_transform/"+num]
+                    f["z_transform/"+num]=(img-mean)/std
+                    most_negative=min((minimum-mean)/std,most_negative)
+                    new_img_list.append("z_transform/"+num)
+                
+                if offset_positive:
+                    for i in range(len(self.img_list)):
+                        num=str(i).zfill(zfillnum)
+                        arr=f["z_transform/"+num][:]
+                        arr-=most_negative
+                        f["z_transform/"+num][:]=arr-most_negative
+
+        return new_img_list
+

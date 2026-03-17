@@ -15,7 +15,7 @@ from collections.abc import Iterable
 import copy
 #%% padding manipulation
 
-def padding_attenuation(padded_img,pad_width,mode="linear",parameters=dict(),plot=False):
+def img_padding_attenuation(padded_img,pad_width,mode="linear",parameters=dict(),plot=False):
     """extending the functionality of np.pad (following same syntax: pad_width) or cv2.copyMakeBorder
     allowing custom attenuation (value reduction towards 0) of added padding (borders)
     

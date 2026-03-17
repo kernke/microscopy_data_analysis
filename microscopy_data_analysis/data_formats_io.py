@@ -8,12 +8,139 @@ import ast
 import datetime
 import os
 import cv2
+import tifffile
+
 
 import ncempy.io as nio
 from contextlib import redirect_stdout
 import io
 
 from .image_processing import img_to_uint8,img_normalize
+
+
+def h5_to_pyramidal_tiff(
+    h5_path,
+    dataset_key,
+    out_path,
+    compression="lzw",
+    max_levels=4
+):
+    """
+    Convert a chunked HDF5 dataset to a pyramidal BigTIFF using tifffile.
+    Memory-safe: only one tile is loaded at a time.
+    """
+
+    with h5py.File(h5_path, "r") as f:
+        dset = f[dataset_key]
+        shape = dset.shape
+        dtype = dset.dtype
+
+        if dset.chunks is None:
+            raise ValueError("Dataset must be chunked")
+
+        tile_h, tile_w = dset.chunks[:2]
+
+        def iterate_tiles(dataset, tile_size=(tile_h, tile_w)):
+            H, W = dataset.shape[:2]
+            for y0 in range(0, H, tile_size[0]):
+                y1 = min(y0 + tile_size[0], H)
+                for x0 in range(0, W, tile_size[1]):
+                    x1 = min(x0 + tile_size[1], W)
+                    yield dataset[y0:y1, x0:x1]
+
+        # --- Step 1: Write full resolution (level 0) ---
+        with tifffile.TiffWriter(out_path, bigtiff=True) as tif:
+            tif.write(
+                data=iterate_tiles(dset),
+                shape=shape,
+                dtype=dtype,
+                tile=(tile_h, tile_w),
+                photometric="rgb" if len(shape) == 3 else "minisblack",
+                compression=compression,
+                subifds=max_levels-1  # reserve pyramid levels
+            )
+
+            prev_shape = shape
+            prev_tile_size = (tile_h, tile_w)
+            prev_dataset = dset
+
+            # --- Step 2: create lower pyramid levels ---
+            for level in range(1, max_levels):
+                new_shape = (max(prev_shape[0] // 2, 1), max(prev_shape[1] // 2, 1))
+                if len(shape) == 3:
+                    new_shape += (shape[2],)
+
+                new_tile_size = (max(prev_tile_size[0] // 2, 1), max(prev_tile_size[1] // 2, 1))
+
+                def downsample_tiles():
+                    for tile in iterate_tiles(prev_dataset, tile_size=prev_tile_size):
+                        h, w = tile.shape[:2]
+                        h2, w2 = max(h // 2, 1), max(w // 2, 1)
+                        if len(tile.shape) == 3:
+                            tile_ds = tile[:h2*2, :w2*2].reshape(h2, 2, w2, 2, tile.shape[2]).mean(axis=(1,3)).astype(dtype)
+                        else:
+                            tile_ds = tile[:h2*2, :w2*2].reshape(h2, 2, w2, 2).mean(axis=(1,3)).astype(dtype)
+                        yield tile_ds
+
+                tif.write(
+                    data=downsample_tiles(),
+                    shape=new_shape,
+                    dtype=dtype,
+                    tile=new_tile_size,
+                    photometric="rgb" if len(shape) == 3 else "minisblack",
+                    compression=compression
+                )
+
+                # update for next level
+                prev_shape = new_shape
+                prev_tile_size = new_tile_size
+                #prev_dataset = None  # free memory; tiles come from generator
+
+    print(f"Saved pyramidal TIFF: {out_path}")
+
+
+def h5_to_tiff(
+    h5_path,
+    dataset_key,
+    out_path,
+    compression="lzw"
+):
+    """Convert a chunked HDF5 dataset to a BigTIFF (no pyramid)."""
+
+    # --- Open HDF5 ---
+    with h5py.File(h5_path, "r") as f:
+        dset = f[dataset_key]
+        shape = dset.shape
+        dtype = dset.dtype
+
+        if dset.chunks is None:
+            raise ValueError("Dataset must be chunked")
+
+        tile_h, tile_w = dset.chunks[:2]
+
+        # Generator to stream tiles
+        def tile_generator():
+            H, W = shape[:2]
+            for y0 in range(0, H, tile_h):
+                y1 = min(y0 + tile_h, H)
+                for x0 in range(0, W, tile_w):
+                    x1 = min(x0 + tile_w, W)
+                    yield dset[y0:y1, x0:x1]
+
+        # --- Write BigTIFF ---
+        tifffile.imwrite(
+            out_path,
+            data=tile_generator(),
+            shape=shape,
+            dtype=dtype,
+            bigtiff=True,
+            tile=(tile_h, tile_w),
+            photometric="rgb" if len(shape) == 3 else "minisblack",
+            compression=compression
+        )
+
+    print(f"Saved BigTIFF: {out_path}")
+
 
 
 
