@@ -1,19 +1,19 @@
-# -*- coding: utf-8 -*-
 """
 @author: kernke
 """
 
-import numpy as np
 import cv2
-from .general_util import make_mask,smoothbox_kernel
+import numpy as np
+from numba import njit
+
+from .general_util import make_mask, smoothbox_kernel
 from .image_processing import (
-    img_rotate_bound,
-    img_rotate_back,
     img_anms,
     img_noise_line_suppression,
+    img_rotate_back,
+    img_rotate_bound,
     img_to_uint8,
 )
-from numba import njit
 
 
 #%% enhance_lines_partial
@@ -32,7 +32,7 @@ def line_enhance_horizontal(trot, mask, ksize=None, dist=1, iterations=2, line="
 
     res = np.copy(tres)
 
-    for i in range(iterations):
+    for _ in range(iterations): # _=i
 
         srot = cv2.Sobel(tres, cv2.CV_64F, 0, 1, ksize=ksize)
 

@@ -1,26 +1,29 @@
-# -*- coding: utf-8 -*-
 """
 submodule focussed completely on images, all functions with prefix "img" 
 take an image as main input and return a processed image
 """
-import cv2
-import numpy as np
-from skimage import  exposure
-from numba import njit
-from numba import prange
-from scipy.special import erf
-import matplotlib.pyplot as plt
-
-from collections.abc import Iterable
 import copy
+from collections.abc import Iterable
+
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+from numba import njit, prange
+from scipy.special import erf
+from skimage import exposure
+
 #%% padding manipulation
 
-def img_padding_attenuation(padded_img,pad_width,mode="linear",parameters=dict(),plot=False):
-    """extending the functionality of np.pad (following same syntax: pad_width) or cv2.copyMakeBorder
-    allowing custom attenuation (value reduction towards 0) of added padding (borders)
+def img_padding_attenuation(padded_img,pad_width,mode="linear",
+                            parameters=None,plot=False):
+    """extending the functionality of np.pad (following same syntax: pad_width) 
+    or cv2.copyMakeBorder allowing custom attenuation (value reduction towards 0) 
+    of added padding (borders)
     
     modes: 'linear', 'exponential', 'inverse_exponential' and 'sigmoid_normalCDF'
     """
+    if parameters is None:
+        parameters=dict()
     if not isinstance(pad_width, Iterable):
         pw=pad_width,pad_width,pad_width,pad_width
     elif not isinstance(pad_width[0], Iterable):

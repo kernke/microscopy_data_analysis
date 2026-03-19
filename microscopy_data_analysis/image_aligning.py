@@ -1,14 +1,22 @@
-# -*- coding: utf-8 -*-
 """
 @author: kernke
 """
-import numpy as np
+from copy import deepcopy
+
 import cv2
 import matplotlib.pyplot as plt
-from copy import deepcopy
+import numpy as np
+
 from .general_util import peak_com2d
-from .image_processing import img_periodic_tiling,img_to_uint16,img_to_half_int16
-from .image_processing import img_add_weighted_rgba,img_gray_to_rgba,img_padding_attenuation
+from .image_processing import (
+    img_add_weighted_rgba,
+    img_gray_to_rgba,
+    img_padding_attenuation,
+    img_periodic_tiling,
+    img_to_half_int16,
+    img_to_uint16,
+)
+
 
 #%% phase_correlation
 def phase_correlation(a, b):
@@ -426,7 +434,7 @@ def align_com_precise(im1, im2,delta=None,show=False,artifacts=None):
     compos,maxpos,delta_used=peak_com2d(pcr,delta=delta)
 
     if show:
-        plt.imshow((pcr[maxpos[0]-delt:maxpos[0]+delt,maxpos[1]-delt:maxpos[1]+delt]))
+        plt.imshow(pcr[maxpos[0]-delt:maxpos[0]+delt,maxpos[1]-delt:maxpos[1]+delt])
         plt.plot(compos[1]-(maxpos[1]-delt),compos[0]-(maxpos[0]-delt),'rx',label='center of mass')
         plt.plot(delt,delt,'wx',label='global max')
         plt.plot(-maxpos[1]+pcr.shape[1]//2+delt,-maxpos[0]+pcr.shape[0]//2+delt,'x',c='fuchsia',label='origin')
@@ -598,9 +606,12 @@ def relative_stitching_positions(
     drifts=[[0, 0], [0, 0]],
     blur=0,
 ):
-    # images: list of images as a series of rows from top to bottom and within the row from left to right
-    # tile_dimensions: tuple consisting of first number of rows and second number of columns
-    # overlap: tuple of values between 0.0 and 1.0 indicating the expected relative overlap of pictures
+    # images: list of images as a series of rows from top to bottom 
+    # and within the row from left to right
+    # tile_dimensions: tuple consisting of first number of rows 
+    # and second number of columns
+    # overlap: tuple of values between 0.0 and 1.0 indicating 
+    # the expected relative overlap of pictures
     # tolerance: relative allowed deviation from the expected overlap
     # note: all images should have the same resolution
 
@@ -617,7 +628,8 @@ def relative_stitching_positions(
         mask_edgeright[:, -int(ignore_montage_edges * imdim[1]) :] = 0
         mask_edgeup[: int(ignore_montage_edges * imdim[0]), :] = 0
 
-    # mask areas far from the overlap, to ensure that even if the side opposite to the stitching edge
+    # mask areas far from the overlap, to ensure that even if the side 
+    # opposite to the stitching edge
     # looks similar, the stitching happens on the right side of the image
     maskleft = np.ones(imdim)
     maskright = np.ones(imdim)
@@ -1578,7 +1590,8 @@ def align_pair(im1, im2, p1, p2, verbose=False):
     else:
         interpolation=cv2.INTER_AREA
         
-    im2transformed = cv2.warpAffine(im2,matrix,(reswidth,resheight), flags=interpolation)
+    im2transformed = cv2.warpAffine(im2,matrix,(reswidth,resheight), 
+                                    flags=interpolation)
     
     if verbose:
         params=dict()
@@ -1591,7 +1604,8 @@ def align_pair(im1, im2, p1, p2, verbose=False):
         return im1orig,im2transformed
 
 
-def align_pair_special(im1, im2, p1, p2,relative_scale_limit=None,translation_only=False):
+def align_pair_special(im1, im2, p1, p2,relative_scale_limit=None,
+                       translation_only=False):
     
     allwidths = []
     allheights = []
@@ -1651,10 +1665,11 @@ def align_pair_special(im1, im2, p1, p2,relative_scale_limit=None,translation_on
     else:
         interpolation=cv2.INTER_AREA
         
-    im2transformed = cv2.warpAffine(im2,matrix,(reswidth,resheight), flags=interpolation)
+    im2transformed = cv2.warpAffine(im2,matrix,(reswidth,resheight), 
+                                    flags=interpolation)
     
 
-    params=dict()
+    params=dict() 
     params["translation"]=translation
     params["rotation"]=rotation
     params["scale"]=scale
@@ -1742,7 +1757,7 @@ def sift_align_matches(img1,img2,ratio_threshold=0.5,verbose=False):
     # Need to draw only good matches, so create a mask 
     good_matches = [[0,0] for i in range(len(Matches))] 
     
-    good=[]
+    good=[] 
     
     # ratio test as per Lowe's paper 
     for i,(m,n) in enumerate(Matches): 
@@ -1829,7 +1844,8 @@ def stack_sift_align_to_first(stack,ratio=0.5,verbose=False):
         (im1s, img0, matrices, reswidth, resheight, 
          width_shift, height_shift)=align_images(
                                                  stack[1:],stack[0], 
-                                                 resulting_ptsBs[:], resulting_ptsA,verbose=True)
+                                                 resulting_ptsBs[:], 
+                                                 resulting_ptsA,verbose=True)
         imlist=[img0]+im1s
         metadata=dict()
         metadata["matrices"]=matrices
@@ -1849,7 +1865,8 @@ def stack_align_from_matrices(stack,metadata):
     Args:
         stack (KxMxN array_like or list of MxN array_likes): 
             stack of images 
-            (different image dimensionss, e.g. one with 1024x512 and another with 234x653, are possible).
+            (different image dimensionss, e.g. one with 1024x512 
+            and another with 234x653, are possible).
         
         metadata (dictionary): 
             transformational information as given by stack_sift_align_to_first.

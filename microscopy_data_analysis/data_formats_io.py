@@ -1,21 +1,19 @@
-# -*- coding: utf-8 -*-
 """
 submodule focussed on dataformats
 """
-import numpy as np
-import h5py
 import ast
 import datetime
+import io
 import os
+from contextlib import redirect_stdout
+
 import cv2
+import h5py
+import ncempy.io as nio
+import numpy as np
 import tifffile
 
-
-import ncempy.io as nio
-from contextlib import redirect_stdout
-import io
-
-from .image_processing import img_to_uint8,img_normalize
+from .image_processing import img_normalize, img_to_uint8
 
 
 def h5_to_pyramidal_tiff(
@@ -67,14 +65,15 @@ def h5_to_pyramidal_tiff(
             prev_dataset = dset
 
             # --- Step 2: create lower pyramid levels ---
-            for level in range(1, max_levels):
+            for _ in range(1, max_levels): # _ = level
                 new_shape = (max(prev_shape[0] // 2, 1), max(prev_shape[1] // 2, 1))
                 if len(shape) == 3:
                     new_shape += (shape[2],)
 
-                new_tile_size = (max(prev_tile_size[0] // 2, 1), max(prev_tile_size[1] // 2, 1))
+                new_tile_size = (max(prev_tile_size[0] // 2, 1), 
+                                 max(prev_tile_size[1] // 2, 1))
 
-                def downsample_tiles():
+                def downsample_tiles(prev_tile_size=prev_tile_size):
                     for tile in iterate_tiles(prev_dataset, tile_size=prev_tile_size):
                         h, w = tile.shape[:2]
                         h2, w2 = max(h // 2, 1), max(w // 2, 1)
@@ -333,15 +332,18 @@ def get_dm4_with_metadata(filepath):
 
     Returns:
         data (dict): 
-            data["data"] yields the data other keywords contain the most important metadata.
+            data["data"] yields the data other keywords contain the most important 
+            metadata.
         
         metadata (dict): 
             Dictionary containing further metadata.
     """
 
-    relevant_metadata_list=["Grating","Objective focus (um)","Stage X","Stage Y","Stage Z","Stage Beta","Stage Alpha","Indicated Magnification",
-    "Bandpass","Detector","Filter","PMT HV","Sensitivity","Slit Width","Sample Time","Dwell time (s)","Image Height","Image Width",
-     "Number Summing Frames","Voltage","Lightpath","Signal Name","Acquisition Time","Acquisition Date"]    
+    relevant_metadata_list=["Grating","Objective focus (um)","Stage X","Stage Y",
+        "Stage Z","Stage Beta","Stage Alpha","Indicated Magnification","Bandpass",
+        "Detector","Filter","PMT HV","Sensitivity","Slit Width","Sample Time",
+        "Dwell time (s)","Image Height","Image Width", "Number Summing Frames",
+        "Voltage","Lightpath","Signal Name","Acquisition Time","Acquisition Date"]    
     
     f = io.StringIO()
     with redirect_stdout(f):
@@ -411,9 +413,10 @@ def convert_dm4_to_png(dm4_filepaths,logscale=False):
             if dmd["pixelUnit"][0] !='µm':
                 print("other pixelsize than 'µm' occured")
             
-            new[-magnification_end:-magnification_start]
-            newname=new[:-magnification_end]+"pixelSize"+pixelSizeString +new[-magnification_start:]
-    
+            #new[-magnification_end:-magnification_start]
+            newname=new[:-magnification_end]+"pixelSize"
+            newname += pixelSizeString +new[-magnification_start:]
+
             if logscale:
                 newdat=dmd["data"]-np.min(dmd["data"])
                 newdat= newdat +np.min(newdat[newdat>0]) * 0.01
@@ -429,7 +432,7 @@ def convert_dm4_to_png(dm4_filepaths,logscale=False):
 
 
 def get_SEMtif_with_metadata(filepath):
-    with open(filepath, 'r', encoding="utf8",errors="ignore") as fp:
+    with open(filepath, encoding="utf8",errors="ignore") as fp:
         contents=fp.read()    
     text=contents[contents.find("Date"):]
     # qtu <-- quantitiy_type_unit

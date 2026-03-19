@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 @author: kernke
 """
-import numpy as np
 import cv2
+import numpy as np
 import scipy.datasets
+
 
 def run_script():
     
@@ -26,7 +26,7 @@ def run_script():
     cstart=0
     randomshift=8
 
-    for i in range(5):
+    for _ in range(5): #_=i
         for j in range(5):
            
             noise=np.random.normal(0,np.max(test)/4,[500,500])
@@ -42,7 +42,9 @@ def run_script():
     #%% save the series of images forming a grid
     for i in range(len(tests)):
         tests[i]=tests[i]-np.min(tests[i])
-        tests[i]=tests[i]/(np.max(tests[i]))+np.random.uniform(0.2,4) #offset and change the contrast a little randomly
+        tests[i]=tests[i]/(np.max(tests[i]))+np.random.uniform(0.2,4) 
+        #offset and change the contrast a little randomly
+        
         tests[i]=tests[i]/(np.max(tests[i]))*255
         cv2.imwrite('image_'+str(i).zfill(2)+'.tif', tests[i].astype(np.uint8))
 

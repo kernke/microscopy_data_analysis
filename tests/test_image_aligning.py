@@ -1,14 +1,14 @@
-# -*- coding: utf-8 -*-
 """
 Created on Mon Aug  5 15:35:09 2024
 
 @author: kernke
 """
 
-import pytest
 
 from numpy.testing import assert_allclose
+
 from microscopy_data_analysis import image_aligning
+
 
 def test_plain_phase_correlation(
         central_pattern_img,

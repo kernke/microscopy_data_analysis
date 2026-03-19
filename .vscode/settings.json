@@ -1,0 +1,16 @@
+{
+  "python.analysis.exclude": [
+    "**/__pycache__",
+    "**/*.egg-info",
+    "build",
+    "dist",
+    ".pytest_cache",
+    ".github",
+    ".virtual_documents",
+    "docs",
+    "examples", "**/node_modules", "**/.*"
+  ],
+  "editor.codeActionsOnSave": {
+    "source.fixAll.ruff": "explicit"
+  }
+}

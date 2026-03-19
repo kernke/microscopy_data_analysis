@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 submodule focussed completely on 1D-data
 """
-import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import curve_fit
-from numba import njit
+import numpy as np
 import pandas as pd
 from IPython import display
+from numba import njit
+from scipy.optimize import curve_fit
+
 
 #%% peak_com
 def center_of_mass(y,x=None,bins=None,roi=None):
@@ -76,7 +76,8 @@ def center_of_mass(y,x=None,bins=None,roi=None):
         
     xwidths=np.diff(nbins)
     
-    res=np.sum(xx[start: end]*xwidths[start:end] * y[start:end]) / np.sum(y[start:end]*xwidths[start:end])
+    res=np.sum(xx[start: end]*xwidths[start:end] * y[start:end]) / np.sum(
+                                            y[start:end]*xwidths[start:end])
 
     return res, pos
 
@@ -237,7 +238,7 @@ def create_rois(y_data,peak_positions,x_data=None):
 
     start=peak_indices[0]-(min_indices_between_peaks[0]-peak_indices[0])
     if start<0:
-        start==0
+        start=0 #start==0?
 
     end=peak_indices[-1]+(peak_indices[-1]-min_indices_between_peaks[-1])
     if end >= len(x_data):
@@ -294,7 +295,7 @@ def asym_pseudo_voigt(x,x0,A,eta,gamma_0,a):
     """
     xcentered=x-x0
     gamma=2*gamma_0/(1+np.exp(a*xcentered))
-    gauss= 1/gamma* np.sqrt(4*np.log(2)/np.pi) *np.exp(-4*np.log(2) *(xcentered/gamma)**2)    
+    gauss= 1/gamma* np.sqrt(4*np.log(2)/np.pi) *np.exp(-4*np.log(2) *(xcentered/gamma)**2)
     lorentz=(2/(np.pi*gamma ))/(1+4*(xcentered/gamma)**2)
     voigt= ((1-eta)*gauss+eta*lorentz)*A
     return voigt
@@ -426,8 +427,9 @@ def asym_pseudo_voigt_table(params,show=True,verbose=True):
         res[:,9]=[asym_pseudo_voigt_normalized_asym(*elem[-2:][::-1]) for elem in params]
         res[:,10]=res[:,0]-res[:,1]
         
-        cols=[r"$x_0$",r"$x_{center}$",r"amplitude $A$","peakheight",r"$\eta$","Gaussian","Lorentzian" 
-              ,r'width $\gamma_0$',r"asym. $a$",r"norm. $a$",r"$x_0-x_{center}$"]
+        cols=[r"$x_0$",r"$x_{center}$",r"amplitude $A$","peakheight",r"$\eta$",
+              "Gaussian","Lorentzian", 
+              r'width $\gamma_0$',r"asym. $a$",r"norm. $a$",r"$x_0-x_{center}$"]
         df = pd.DataFrame(res, index=indices, columns=cols)
 
         mapper =  {r"$x_0$": '{:.3e}',
@@ -754,7 +756,8 @@ def calculate_FWHM(x_data,y_data,superres=2):
             previous_point_was_below=False
     
     if len(lefts)==0 or len(rights)==0:
-        print("full width half maximum condition not fulfilled with peak height: "+str(2*H))
+        print("full width half maximum condition not fulfilled " \
+                "with peak height: "+str(2*H))
 
     left=np.mean(lefts)
     right=np.mean(rights)
@@ -766,7 +769,8 @@ def calculate_FWHM(x_data,y_data,superres=2):
     return fwhm,fwhm_positions,peak_height,peak_positon    
 
 #%% peak fit
-def peak_fit(y_data,x_data=None,roi=None,plot=False,orders_of_deviation=2,verbose=False):
+def peak_fit(y_data,x_data=None,roi=None,plot=False,
+             orders_of_deviation=2,verbose=False):
     """
     peak fitting routine, that contains 4 peak functions:
     Gaussian, Lorentzian, Pseudo-Voigt, Asymmetric-Pseudo-Voigt
@@ -875,13 +879,15 @@ def peak_fit(y_data,x_data=None,roi=None,plot=False,orders_of_deviation=2,verbos
     estimated_pV_A=estimated_eta*estimated_lorentzian_A+(1-estimated_eta)*estimated_gaussian_A
 
     pVp0 = (estimated_x0,estimated_pV_A,estimated_eta,estimated_gamma,estimated_sigma)
-    bounds=([x[0],     0,0,      estimated_gamma*10**-orders,estimated_sigma*10**-orders],#-np.inf,-np.inf],
+    bounds=([x[0], 0, 0, estimated_gamma*10**-orders, estimated_sigma*10**-orders],
+            #-np.inf,-np.inf],
             [x[-1],np.inf,1, estimated_gamma*10**orders, estimated_sigma*10**orders])
     
     if verbose:
         print(pVp0)
 
-    pVparams, pVcv = curve_fit(pseudo_voigt, x,y,p0=pVp0,bounds=bounds)#,method="dogbox")
+    pVparams, pVcv = curve_fit(pseudo_voigt, x,y,p0=pVp0,bounds=bounds)
+    #,method="dogbox")
 
     estimated_a=0
     estimated_eta=0.5
@@ -900,7 +906,8 @@ def peak_fit(y_data,x_data=None,roi=None,plot=False,orders_of_deviation=2,verbos
         plt.plot(xx,gaussian(xx,*gparams),c=colors[0],label='Gaussian')
         plt.plot(xx,lorentzian(xx,*lparams),c=colors[1],label='Lorentzian')
         plt.plot(xx,pseudo_voigt(xx,*pVparams),c=colors[2],label='Pseudo Voigt')
-        plt.plot(xx,asym_pseudo_voigt(xx,*apVparams),c=colors[3],label='Asym. Pseudo Voigt')
+        plt.plot(xx,asym_pseudo_voigt(xx,*apVparams),c=colors[3],
+                 label='Asym. Pseudo Voigt')
         plt.plot(xx,pseudo_voigt(xx,*pVparams),c=colors[2])
         plt.legend()
         
@@ -909,7 +916,8 @@ def peak_fit(y_data,x_data=None,roi=None,plot=False,orders_of_deviation=2,verbos
     
 #%% sequential_peak_fit
 #TODO output for other functions, not only asym pseudo Voigt
-def sequential_peak_fit(y_data,x_data=None,regions_of_interest=[],plot=False,verbose=False):
+def sequential_peak_fit(y_data,x_data=None,regions_of_interest=[],
+                        plot=False,verbose=False):
     """
     fit multiple peaks succesively in descending order with respect to their peakheight. 
     the number of peaks is given by the number of tuples for regions_of_interest
@@ -997,7 +1005,8 @@ def sequential_peak_fit(y_data,x_data=None,regions_of_interest=[],plot=False,ver
 
 
 #%% multiple identical functions fit
-def multi_ident_func_fit(func,p0_lists,x,y,single_upper_bounds=None,single_lower_bounds=None):
+def multi_ident_func_fit(func,p0_lists,x,y,single_upper_bounds=None,
+                         single_lower_bounds=None):
     """
     simultaneous fit of multiple peaks/features with identical fitfunctions
 
@@ -1016,13 +1025,13 @@ def multi_ident_func_fit(func,p0_lists,x,y,single_upper_bounds=None,single_lower
             input data.
         
         single_upper_bounds (list or array_like, optional): 
-            boundaries for fit-parameters 
-            applied for all peaks/features. If not given +inf is used for all parameters.
+            boundaries for fit-parameters applied for all peaks/features. 
+            If not given +inf is used for all parameters.
             Defaults to None.
         
         single_lower_bounds (list or array_like, optional): 
-            boundaries for fit-parameters 
-            applied for all peaks/features. If not given -inf is used for all parameters.
+            boundaries for fit-parameters applied for all peaks/features. 
+            If not given -inf is used for all parameters.
             Defaults to None.
 
     Returns:

@@ -1,9 +1,9 @@
-# -*- coding: utf-8 -*-
 """
 create dummy data 1D
 """
 
 import numpy as np
+
 import microscopy_data_analysis as mda
 
 
@@ -47,7 +47,8 @@ def run_script():
         hist,bin_edges=np.histogram(random_sample,bins=xbins)
         y+=hist
     
-    # finally, some manipulation to make it more realistic and not get perfect peak-shapes    
+    # finally, some manipulation to make it more realistic 
+    # and not get perfect peak-shapes
     y*=np.log(x+2)
 
     # as an extra a peak with more overlap to another is added

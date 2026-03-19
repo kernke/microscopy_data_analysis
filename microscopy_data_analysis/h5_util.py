@@ -1,16 +1,18 @@
-# -*- coding: utf-8 -*-
 """
 @author: kernke
 """
-import h5py
-from datetime import datetime
-from .general_util import folder_file,assure_multiple,make_mask,take_map
-from .image_processing import img_rotate_bound,img_morphLaplace,img_to_uint8
-from .image_aligning import align_images,align_image_fast1
-from .line_detection import line_process_partial,line_check_angle_s,line_process_vis
-import numpy as np
-import cv2
 import time
+from datetime import datetime
+
+import cv2
+import h5py
+import numpy as np
+
+from .general_util import assure_multiple, folder_file, make_mask, take_map
+from .image_aligning import align_image_fast1, align_images
+from .image_processing import img_morphLaplace, img_rotate_bound, img_to_uint8
+from .line_detection import line_check_angle_s, line_process_partial, line_process_vis
+
 
 #%% h5_sortout_0frames_in_raw
 def h5_sortout_0frames_in_raw(rawh5):
@@ -502,8 +504,10 @@ def h5_enhance_and_align(
 
             # for ccounter in range(len(rotangles)):
             #    name="/check"+str(ccounter)+"_"
-            #    res.create_dataset(tempnames[j]+name, shape=[len(iroi),imshape[0],imshape[1]],dtype=np.uint8,
-            #        chunks=(1,imshape[0],imshape[1]),compression='gzip',compression_opts=2)
+            #    res.create_dataset(tempnames[j]+name, shape=[len(iroi),
+            #        imshape[0],imshape[1]],dtype=np.uint8,
+            #        chunks=(1,imshape[0],imshape[1]),compression='gzip',
+            #        compression_opts=2)
             # res.create_dataset(tempnames[j]+"/times",shape=(len(iroi)),dtype='f')
 
             for i in iroi:
@@ -556,7 +560,7 @@ def h5_enhance_and_align(
                         [len(rotangles), imshape[0], imshape[1]], dtype=np.uint8
                     )
 
-                    refim = align_image_fast1(img, matrix, reswidth, resheight)
+                    #refim = align_image_fast1(img, matrix, reswidth, resheight)
                     for k in range(len(checkmaps)):
                         alignedmaps[ccounter] = align_image_fast1(
                             checkmaps[k], matrix, reswidth, resheight
@@ -617,7 +621,7 @@ def h5_thresholding(newh5, oldh5, rotangles, tempnames, params, roi=None):
                 # if k==1:
                 #    break
 
-                srbs = []
+                #srbs = []
                 for ccounter in range(len(rotangles)):
                     name = "/check" + str(ccounter) 
 
@@ -635,7 +639,7 @@ def h5_thresholding(newh5, oldh5, rotangles, tempnames, params, roi=None):
                         np.pi / 1800,  # Angle resolution in radians
                         threshold=Hthreshold,  # Min number of votes for valid line
                         minLineLength=Hminlength,  # Min allowed length of line
-                        maxLineGap=Hmaxgap,  # Max allowed gap between line for joining them
+                        maxLineGap=Hmaxgap,  # Max allowed gap between lines for joining
                     )
 
                     newlines = line_check_angle_s(lines, rotangles[i], deg_tol)

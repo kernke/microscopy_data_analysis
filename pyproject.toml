@@ -1,0 +1,9 @@
+[tool.ruff]
+# Ignore all docstring (D) and commented-out code (ERA) rules
+lint.ignore = ["D", "ERA"]
+
+# Make sure pycodestyle errors (E) are included
+lint.select = ["E", "F", "I", "B", "UP"]
+
+# Safe fixes enabled
+fix = true

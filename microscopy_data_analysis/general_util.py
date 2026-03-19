@@ -1,34 +1,32 @@
-# -*- coding: utf-8 -*-
 """
 submodule covering some 1D, 2D, mixed and other functions
 """
 
-import numpy as np
-import cv2
-#import copy
-from numba import njit
-import scipy.special
-
-from skimage.draw import circle_perimeter
-from skimage.draw import line_aa
-from skimage.draw import disk
-
-import matplotlib.pyplot as plt
-
-from .image_processing import img_make_square
 import os
 
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy.special
+
+#import copy
+from numba import njit
 from scipy.integrate import quad
+from skimage.draw import circle_perimeter, disk, line_aa
+
+from .image_processing import img_make_square
 
 #%%
 
 
 def split_function_into_equal_area_parts(func,number_of_parts,prec=10**-6,limits=[-np.inf,np.inf],
                                             printing=False,max_iterations=1000):
-    """calculate the split positions to divide a function into equal area parts, best suited for smooth functions
+    """calculate the split positions to divide a function into equal area parts, 
+    best suited for smooth functions
     """
     total_area_first,error=quad(func,limits[0],limits[1]) #get total area
-    quad_abs_prec=0.5*prec /number_of_parts#*total_area_first/ #determine absolute precision for integration
+    quad_abs_prec=0.5*prec /number_of_parts#*total_area_first/ 
+                                        #determine absolute precision for integration
     adj_func=lambda x: func(x)/total_area_first
     total_area,error=quad(adj_func,limits[0],limits[1],epsabs=quad_abs_prec)
 
@@ -101,12 +99,13 @@ def find_next_cut(func,firstcut,desired_area,tolerance_area,quad_abs_prec,
 
 #%%
 
+import json
+
+import ipywidgets
+import matplotlib as mpl
+from IPython.display import display
 from ipywidgets import widgets
 from matplotlib.ticker import MultipleLocator
-import matplotlib as mpl
-import ipywidgets
-import json
-from IPython.display import display
 
 
 def _cmap_from_setpoints(cmapname,setpoints):
@@ -149,7 +148,7 @@ def custom_colormap(img,colormap_name,number_of_colorsliders=3):
         arg_slider_dict["s"+str(i)]=sliders[-1]
     links=[]
     for i in range(nc-1):
-        links.append(ipywidgets.link((sliders[i], 'value'), (sliders[i+1], 'min')))            
+        links.append(ipywidgets.link((sliders[i], 'value'), (sliders[i+1], 'min')))
     ui = widgets.HBox(sliders)
 
     def plot(*args):
@@ -224,7 +223,7 @@ def save_cmap(filename,cmap_dict):
     print("saved")
 
 def load_cmap(filename):
-    with open(filename, 'r') as fp:
+    with open(filename) as fp:
         cmap_dict= json.load(fp)
     cmap_dict["colormap"]=_cmap_from_setpoints(cmap_dict["name"],cmap_dict["setpoints"])
     return cmap_dict
@@ -232,7 +231,8 @@ def load_cmap(filename):
 
 #%% dashed line in image
 
-def draw_dashed_line(img,start_point,end_point,color,thickness=1,segment_length=15,gap_length=10):
+def draw_dashed_line(img,start_point,end_point,color,thickness=1,
+                     segment_length=15,gap_length=10):
     """
     draw a dashed line on a 2D rasterized image
 
@@ -262,7 +262,8 @@ def draw_dashed_line(img,start_point,end_point,color,thickness=1,segment_length=
         else:
             end = current + segment_length*unit_step
         
-        cv2.line(img, np.round(current).astype(int), np.round(end).astype(int), color, thickness)
+        cv2.line(img, np.round(current).astype(int), 
+                 np.round(end).astype(int), color, thickness)
         current = end + gap_length*unit_step
         length_counter += segment_length + gap_length
 
@@ -275,11 +276,14 @@ def bin_centering(x_bins,additional_boundary_bin_threshold=None):
     Args:
         x_bins (list or array_like): with length N, in strictly increasing order.
         
-        additional_boundary_bin_threshold (float, optional): option to give an additional bin,
-        in case the given values, represent only lower or upper bin boundaries. Defaults to None.
+        additional_boundary_bin_threshold (float, optional): 
+        option to give an additional bin,
+        in case the given values, represent only lower or upper bin boundaries. 
+        Defaults to None.
 
     Returns:
-        centers (array_like): with length N-1 or length N when an additional bin is given.
+        centers (array_like): with length N-1 or length N 
+        when an additional bin is given.
 
     """
     if not isinstance(x_bins,list):
@@ -291,7 +295,8 @@ def bin_centering(x_bins,additional_boundary_bin_threshold=None):
         elif additional_boundary_bin_threshold<np.min(x_bins): 
             x_bins.insert(0,additional_boundary_bin_threshold)
         else:
-            raise ValueError("additional_boundary_bin_threshold within the range of x_bins")
+            raise ValueError("additional_boundary_bin_threshold " \
+                                "within the range of x_bins")
         
     bin_diff=np.diff(x_bins)
     if np.min(bin_diff)<=0:
@@ -351,10 +356,12 @@ def stitch_1d_overlap(x1,y1,x2,y2,scale_adjustment=True,newbins=False,verbose=Fa
         
         y2 (list or array_like): same length as x2.
                 
-        scale_adjustment (bool, optional): turn multiplicative adjustement on (True) or off (False). 
+        scale_adjustment (bool, optional): turn multiplicative adjustement 
+        on (True) or off (False). 
         Defaults to True.
         
-        verbose (bool, optional): prints out the scale_adjustment factor, if set to True. 
+        verbose (bool, optional): prints out the scale_adjustment factor, 
+        if set to True. 
         Defaults to False.
         
     Returns:
@@ -366,7 +373,8 @@ def stitch_1d_overlap(x1,y1,x2,y2,scale_adjustment=True,newbins=False,verbose=Fa
     
     if len(x1) != len(y1) or len(x2) != len(y2):
         print("Corresponding wavelengths and spectrum need to have identical shape.")
-        print("In case of bins choose either the lower or upper bound and use 'up' or 'down', respectively,")
+        print("In case of bins choose either the lower or upper bound and " \
+            "use 'up' or 'down', respectively,")
         print("for the argument 'wavelength_bin_direction'.")
     
     # prepare data
@@ -456,7 +464,8 @@ def stitch_1d_overlap(x1,y1,x2,y2,scale_adjustment=True,newbins=False,verbose=Fa
     
     for i in range(len(new_x)):
         # if a point comes from x1, newy1 is the corresponding value in y1
-        # and newy2 is the weighted sum from neighbouring points in y2 (linear interpolation)
+        # and newy2 is the weighted sum from neighbouring points in y2 
+        # (linear interpolation)
         # else it goes the other way around
         if from_x1[i]:
             newy1[i]=y1[x_index[i]]
@@ -479,7 +488,8 @@ def stitch_1d_overlap(x1,y1,x2,y2,scale_adjustment=True,newbins=False,verbose=Fa
                 newy1[i]/=weight
                 new_y_weights1[i]=weight
 
-    # produce a mask for the new points that is True within the overlap region and otherwise False
+    # produce a mask for the new points that is True 
+    # within the overlap region and otherwise False
     overlap_region=(new_y_weights1*new_y_weights2)>0
     overlap1=newy1[overlap_region]
     overlap2=newy2[overlap_region]
@@ -571,15 +581,20 @@ def get_all_files(folder='.',ending=None,start=None):
 
     """
     filenames=[]#os.listdir(folder)
-    for path, subdirs, files in os.walk(folder):
+    for path, _, files in os.walk(folder): # _ = subdirs
         for name in files:
             condition=False
-            if ending is None and start is None: condition=True 
-            elif name[-len(ending):]==ending and start is None: condition=True
-            elif ending is None and start==name[:len(start)]: condition=True 
-            elif name[-len(ending):]==ending and start==name[:len(start)]: condition=True
+            if ending is None and start is None: 
+                condition=True 
+            elif name[-len(ending):]==ending and start is None: 
+                condition=True
+            elif ending is None and start==name[:len(start)]: 
+                condition=True 
+            elif name[-len(ending):]==ending and start==name[:len(start)]: 
+                condition=True
 
-            if condition: filenames.append(os.path.join(path, name))
+            if condition: 
+                filenames.append(os.path.join(path, name))
     
     return filenames
 
@@ -877,8 +892,8 @@ def intersect(A, B, C, D):
 #%% get_angular_dist
 def get_angular_dist(image, borderdist=100, centerdist=20, plotcheck=False):
     """
-    angles measured in degrees starting from horizontal line counterclockwise (real space)
-    (like phi in polar coordinate)  
+    angles measured in degrees starting from horizontal line counterclockwise 
+    in real space (like phi in polar coordinate)  
 
     Args:
         image (TYPE): 
@@ -1007,7 +1022,10 @@ def _pascal_numbers(n):
 
 
 def smoothbox_kernel(kernel_size):
-    """Gaussian Smoothing kernel approximated by integer-values obtained via binomial distribution"""
+    """
+    Gaussian Smoothing kernel approximated by integer-values 
+    obtained via binomial distribution
+    """
     r = kernel_size[0]
     c = kernel_size[1]
     sb = np.zeros([r, c])

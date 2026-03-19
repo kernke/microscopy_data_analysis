@@ -1,17 +1,18 @@
-# -*- coding: utf-8 -*-
 """
 @author: kernke
 """
 
-import numpy as np
-from skimage.draw import line_aa
-from numba import njit
-import matplotlib.pyplot as plt
 import math
+
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+from numba import njit
+from scipy.sparse import csr_matrix
+from skimage.draw import line_aa
+
 from .general_util import intersect, lineIntersection
 from .image_processing import img_to_uint8
-from scipy.sparse import csr_matrix
-import cv2
 
 
 #%% sparse matrices
@@ -76,7 +77,7 @@ def _calc_m_n_t_l(points, singlemap):
     slope: m
     intercept: n
     thickness: t
-    length: l
+    length: L
     """
     xstartindex = np.argmin(points[:, 1])
     xendindex = np.argmax(points[:, 1])
@@ -120,13 +121,13 @@ def _calc_m_n_t_l(points, singlemap):
         print("division by zero")
 
     m = dy / dx
-    l = math.sqrt(dy * dy + dx * dx)
+    L = math.sqrt(dy * dy + dx * dx)
 
     y = (e[0] + s[0]) / 2
     x = (e[1] + s[1]) / 2
     n = y - m * x
 
-    return [m, n, t, l], s, e
+    return [m, n, t, L], s, e
 
 
 #%% getcheck
@@ -246,7 +247,7 @@ class line_analysis_object:
         Returns a list containing all methods of this class
         """
         object_methods = [
-            method_name for method_name in dir(self) if callable(getattr(self, method_name))
+        method_name for method_name in dir(self) if callable(getattr(self, method_name))
         ]
 
         methods = [method for method in object_methods if method[0] != "_"]
@@ -312,7 +313,7 @@ class line_analysis_object:
         self._add_attr("conlens", self.line_vars, conlens)
 
         if printing:
-            print("Total number of lines: {:.0f}".format(np.sum(shape)))
+            print(f"Total number of lines: {np.sum(shape):.0f}")
             print(shape)
         return conpois, conlens
 
@@ -321,7 +322,7 @@ class line_analysis_object:
         shape = []
         for i in self.conpois:
             shape.append(len(i))
-        print("Total number of lines: {:.0f}".format(np.sum(shape)))
+        print(f"Total number of lines: {np.sum(shape):.0f}")
         print(shape)
 
     #%%
@@ -429,7 +430,7 @@ class line_analysis_object:
             singlemap = singlemaps[j]
 
             testindex = np.argmax(conlen)
-            [m, n, t, l], s, e = _calc_m_n_t_l(conpoi[testindex], singlemap)
+            [m, n, t, L], s, e = _calc_m_n_t_l(conpoi[testindex], singlemap)
             testm = np.abs(m)
             # tms.append(testm)
 
@@ -604,7 +605,8 @@ class line_analysis_object:
                 
             if tms[i] > 1:
                 for j in range(len(conpois[i])):
-                    check = _getcheck3(shiftrange, conpois[i][j], image,binmap)#checkmaps[i])
+                    check = _getcheck3(shiftrange, conpois[i][j], image,binmap)
+                    #checkmaps[i])
                     gcheck=max(check)
                     vcheck=0
                     for k in conpois[i][j]:
@@ -619,7 +621,8 @@ class line_analysis_object:
 
             else:
                 for j in range(len(conpois[i])):
-                    check = _getcheck2(shiftrange, conpois[i][j],image,binmap)#checkmaps[i])
+                    check = _getcheck2(shiftrange, conpois[i][j],image,binmap)
+                    #checkmaps[i])
                     gcheck=max(check)
                     vcheck=0
                     for k in conpois[i][j]:
@@ -712,7 +715,8 @@ class line_analysis_object:
                             s2, e2 = slists[g][j], elists[g][j]
                             length2 = ls[g][j]
 
-                            outerstart, outerend, start, end = _order_points(s1, e1, s2, e2)
+                            outerstart, outerend, start, end = _order_points(s1, e1, 
+                                                                             s2, e2)
                             rr, cc, val = line_aa(*start.astype(int), *end.astype(int))
                             dl = np.stack((rr, cc)).T
 
@@ -741,9 +745,11 @@ class line_analysis_object:
                                 newconf /= 2
                                 newn += ns[j]
                                 newn /= 2
-                                newconpoi = np.concatenate((newconpoi, dl, conpois[g][j]), axis=0)
+                                newconpoi = np.concatenate(
+                                                        (newconpoi, dl, conpois[g][j]),
+                                                        axis=0)
                                 newlength = math.sqrt(
-                                    sum((outerstart - outerend) * (outerstart - outerend))
+                                sum((outerstart - outerend) * (outerstart - outerend))
                                 )
                                 newconlen = len(newconpoi)
 
@@ -804,23 +810,23 @@ class line_analysis_object:
         connections = []
         for i in linesets:
             connections.append([])
-            for j in i:
+            for _ in i: # _ =j
                 connections[-1].append(set())
 
         for i in range(len(linesets)):
             for k in range(len(linesets[i])):
                 line1 = linesets[i][k]
                 for j in range(i + 1, len(linesets)):
-                    for l in range(len(linesets[j])):
-                        line2 = linesets[j][l]
+                    for L in range(len(linesets[j])):
+                        line2 = linesets[j][L]
                         cp = line1.intersection(line2)
                         if cp:
                             crosspoints.append(cp)
                             crosslens.append(len(cp))
-                            crosslines.append([(i, k), (j, l)])
+                            crosslines.append([(i, k), (j, L)])
                             # crossdic[(i,k),(j,l)]=cp
-                            connections[i][k].add((j, l))
-                            connections[j][l].add((i, k))
+                            connections[i][k].add((j, L))
+                            connections[j][L].add((i, k))
 
         self._add_attr("crosspoints", self.point_vars, crosspoints)
         self._add_attr("crosslens", self.point_vars, crosslens)
@@ -873,9 +879,9 @@ class line_analysis_object:
                 p0 = slists[i][j]
                 p1 = elists[i][j]
                 dp = p1 - p0
-                l = lengths[i][j]
-                s_ext = (l + deltapix) / l
-                s_shr = (l - deltapix) / l
+                L = lengths[i][j]
+                s_ext = (L + deltapix) / L
+                s_shr = (L - deltapix) / L
 
                 extended_elists[-1].append(p0 + dp * s_ext)
                 shrinked_elists[-1].append(p0 + dp * s_shr)
@@ -918,21 +924,21 @@ class line_analysis_object:
                     pass
                 else:
                     for j in range(i + 1, len(ext_slists)):
-                        for l in range(len(ext_slists[j])):
-                            c1 = ext_slists[j][l]
-                            d1 = ext_elists[j][l]
+                        for L in range(len(ext_slists[j])):
+                            c1 = ext_slists[j][L]
+                            d1 = ext_elists[j][L]
 
-                            c2 = shr_slists[j][l]
-                            d2 = shr_elists[j][l]
+                            c2 = shr_slists[j][L]
+                            d2 = shr_elists[j][L]
 
                             if intersect(a1, b1, c1, d1):
-                                s1.add(((i, k), (j, l)))
+                                s1.add(((i, k), (j, L)))
 
                             if intersect(a1, b1, c2, d2) or intersect(a2, b2, c1, d1):
-                                s2.add(((i, k), (j, l)))
+                                s2.add(((i, k), (j, L)))
 
                             if intersect(a2, b2, c2, d2):
-                                s3.add(((i, k), (j, l)))
+                                s3.add(((i, k), (j, L)))
 
         blockings = s2.difference(s3)
         corners = s1.difference(s2)
@@ -1031,7 +1037,7 @@ class line_analysis_object:
 
         sortoutids = []
         sortout = []
-        for i in range(len(linesets)):
+        for _ in range(len(linesets)): #_=i
             sortoutids.append([])
             sortout.append([])
 
@@ -1063,9 +1069,9 @@ class line_analysis_object:
     def get_number_of_connections(self):
         crosslines = self.crosslines
         connections = []
-        for i in range(len(self.linesets)):
+        for _ in range(len(self.linesets)): #_=i
             connections.append()
-        for i in crosslines:
+        for _ in crosslines:
             pass
 
     #%% pinpoint_crossings
@@ -1088,28 +1094,27 @@ class line_analysis_object:
         return crossings
 
     #%% check_ends
-    def check_ends(self):
-        slists = self.slists
-        elists = self.slists
-
-        crosslines = self.crosslines
-
-        crosslineset = set(map(tuple, crosslines))
-
-        singleends = []
-        corners = []
-        blockings = []
-
-        for i in range(len(slists)):
-            for j in range(len(slists[i])):
-                start = slists[i][j]
-                end = elists[i][j]
-
-                meets = []
-                for k in range(i + 1, len(slists)):
-                    for l in range(len(slists[k])):
-                        cstart = slists[k][l]
-                        cend = elists[k][l]
-
+    #def check_ends(self):
+    #    slists = self.slists
+    #    elists = self.slists
+    #
+    #    crosslines = self.crosslines
+    #
+    #    crosslineset = set(map(tuple, crosslines))
+    #
+    #    singleends = []
+    #    corners = []
+    #    blockings = []
+    #
+    #    for i in range(len(slists)):
+    #        for j in range(len(slists[i])):
+    #            start = slists[i][j]
+    #            end = elists[i][j]
+    #
+    #            meets = []
+    #            for k in range(i + 1, len(slists)):
+    #                for l in range(len(slists[k])):
+    #                    cstart = slists[k][l]
+    #                    cend = elists[k][l]
                 # check start
                 # check end

@@ -1,25 +1,24 @@
-# -*- coding: utf-8 -*-
-import numpy as np
-import matplotlib.pyplot as plt
-import networkx as nx
+import os
+
 import cv2
 import h5py
-import shapely
-import os
+import imagesize
+import matplotlib.pyplot as plt
 import networkx as nx
+import numpy as np
+import shapely
 from scipy.optimize import least_squares
 from scipy.sparse import lil_matrix
-import imagesize
 from tqdm import tqdm
 
+from .image_aligning import img_padding_attenuation, max_from_2d, phase_correlation
 from .image_processing import img_to_uint8
-from .image_aligning import phase_correlation,max_from_2d,img_padding_attenuation
 
 
 class stack_and_stitching_object:
-    def __init__(self,mode="storage",no_print=False):
+    def __init__(self, mode="storage", no_print=False):
         """
-        object to handle large stacks (potentially larger than size of RAM) 
+        Object to handle large stacks (potentially larger than size of RAM) 
         for background subtraction, shift correction or stitching 
         
         Args:
@@ -31,63 +30,65 @@ class stack_and_stitching_object:
             no_print (bool): set to 'True' for silent execution
             Defaults to 'False'
         """
-        self.mode=mode
-        self.no_print=no_print
-        self.images_from="original"
-        self.directory=None
-        self.modifiable_file=None
-        self.warning_mod_is_none="please first provide a modifiable dataset by using 'create_h5cube_duplicate_for_modifying'"
+        self.mode = mode
+        self.no_print = no_print
+        self.images_from = "original"
+        self.directory = None
+        self.modifiable_file = None
+        self.overwrite = True
+        self.warning_mod_is_none = "please first provide a modifiable dataset by using 'create_h5cube_duplicate_for_modifying'"
         if not no_print:
             if mode == "storage":
                 print("For .h5 provide the path to the h5-file (that serves as h5-directory) via the 'set_directory_path' method")
-                print("For .tif, .png, ... image files  either provide  a list of relative or absolute filepaths via 'set_img_list'") 
+                print("For .tif, .png, ... image files  either provide  a list of relative or absolute filepaths via 'set_img_list'")
                 print("or provide the folder containing only the contributing images via 'set_directory_path'")
             if mode == "memory":
                 print("please provide the images, as a list of images via 'set_img_list'")
-                
+
     def info(self):
         print("General conditions: ")
         print("All images of the series are assumed, to have no rotation and same pixel size and same dimensions.")
-        #print("Some functions additionally require same dimensions for all images (for example, all image shapes: 512x256).")
-            
-    def set_directory_path(self,path_string):
+        # print("Some functions additionally require same dimensions for all images (for example, all image shapes: 512x256).")
+
+    def set_directory_path(self, path_string):
         """
-        set the path to either an h5-file or a folder containing the images
+        Set the path to either an h5-file or a folder containing the images
 
         Args:
             path_string (string): looking like, for example: 'folderA/data.h5' or 'folderB'
         """
-        self.directory=path_string
-        if path_string[-3:]==".h5":
-            self.h5_mode=True
+        self.directory = path_string
+        if path_string[-3:] == ".h5":
+            self.h5_mode = True
             print("please provide the h5 image file paths as a list via 'set_img_list' or use 'imgs_from_datacube'")
         else:
-            rel_img_list=sorted(os.listdir(path_string))
-            self.img_list=[]
+            rel_img_list = sorted(os.listdir(path_string))
+            self.img_list = []
             for i in range(len(rel_img_list)):
-                self.img_list.append(path_string+"/"+rel_img_list[i])
-            self.h5_mode=False
+                self.img_list.append(path_string + "/" + rel_img_list[i])
+            self.h5_mode = False
 
-    def imgs_from_datacube(self,dataset_name):
+    def imgs_from_datacube(self, dataset_name):
         """
-        images are assumed to be represented by the first index (for example: 16 x 1024 x 1024)
+        Images are assumed to be represented by the first index 
+        (for example: 16 x 1024 x 1024)
         
         Args:
             dataset_name (string): name (h5 internal path) of the dataset
             could look like for example: 'sampleA/data' or just 'images'
         """
-        self.mode="h5_datacube"
-        self.dataset_name=dataset_name
-        with h5py.File(self.directory,'r') as h5:
-            datashape=h5[dataset_name].shape
-            self.img_list=np.arange(datashape[0])
+        self.mode = "h5_datacube"
+        self.dataset_name = dataset_name
+        with h5py.File(self.directory, 'r') as h5:
+            datashape = h5[dataset_name].shape
+            self.img_list = np.arange(datashape[0])
 
-    def change_source_imgs(self,mode="memory",no_print=False):
+    def change_source_imgs(self, mode="memory", no_print=False):
         """
-        change source images of the stack 
+        Change source images of the stack 
         
         Args:
-            mode (string): 'storage' only single images are loaded into RAM  simultaneously 
+            mode (string): 'storage' only single images are loaded into RAM simultaneously 
             ('storage' supports images as .tif, .png ... or as multiple files in .h5 or as datacube in .h5)
             The mode 'memory' can be used, for small image series, that are already being loaded fully into RAM
             Defaults to 'storage' 
@@ -95,20 +96,19 @@ class stack_and_stitching_object:
             no_print (bool): set to 'True' for silent execution
             Defaults to 'False'
         """
-        self.mode=mode
-        self.directory=None
+        self.mode = mode
+        self.directory = None
         if not no_print:
             if mode == "storage":
                 print("For .h5 provide the path to the h5-file (that serves as h5-directory) via the 'set_directory_path' method")
-                print("For .tif, .png, ... image files  either provide  a list of relative or absolute filepaths via 'set_img_list'") 
+                print("For .tif, .png, ... image files  either provide  a list of relative or absolute filepaths via 'set_img_list'")
                 print("or provide the folder containing only the contributing images via 'set_directory_path'")
             if mode == "memory":
                 print("please provide the images, as a list of images via 'set_img_list'")
 
-
-    def set_img_list(self,img_list):
+    def set_img_list(self, img_list):
         """
-        set the image list
+        Set the image list
 
         Args:
             img_list (list of strings or list of arrays): 
@@ -116,106 +116,117 @@ class stack_and_stitching_object:
             or in case of mode='memory' a list containing the actual images 
         """
         if self.directory is None:
-            self.h5_mode=False
-            self.img_list=img_list
+            self.h5_mode = False
+            self.img_list = img_list
         else:
-            self.img_list=img_list
+            self.img_list = img_list
 
-    
-    def get_img(self,index):
+    def get_img(self, index):
         """
-        load the requested image into RAM and return it
+        Load the requested image into RAM and return it
 
         Args:
             index (int): index of the image in 'img_list'
 
-        Returns:
+        Returns
+        -------
             img (array): requested image
         """
-        if self.images_from=="original":
-            if self.mode=="memory":
+        if self.images_from == "original":
+            if self.mode == "memory":
                 img = self.img_list[index]
-            elif self.mode=="storage":
+            elif self.mode == "storage":
                 if self.h5_mode:
-                    with h5py.File(self.directory,'r') as h5:
-                        img=h5[self.img_list[index]][()]
+                    with h5py.File(self.directory, 'r') as h5:
+                        img = h5[self.img_list[index]][()]
                 else:
-                    img=cv2.imread(self.img_list[index],0)
-            elif self.mode=="h5_datacube":
-                with h5py.File(self.directory,'r') as h5:
-                    img=h5[self.dataset_name][index,:,:]
+                    img = cv2.imread(self.img_list[index], 0)
+            elif self.mode == "h5_datacube":
+                with h5py.File(self.directory, 'r') as h5:
+                    img = h5[self.dataset_name][index, :, :]
         else:
-            with h5py.File(self.modifiable_file,'r') as h5:
-                img=h5[self.images_from][index,:,:]
+            with h5py.File(self.modifiable_file, 'r') as h5:
+                img = h5[self.images_from][index, :, :]
         return img
 
-    def set_positions(self,positions):
+    def set_positions(self, positions):
         """ 
-        set the estimated x and y positions of the images for stitching
+        Set the estimated x and y positions of the images for stitching
         
         Args:
             postions (array_like or list of tuples): postions containing x,y
             either as array with shape (N,2) or list of tuples
-        """ 
-        self.positions=positions
-
-    def set_units_per_pixel(self,units_per_pixel):
         """
-        set the units per pixel for example (0.3 micrometer per pixel), 
+        self.positions = positions
+
+    def set_units_per_pixel(self, units_per_pixel):
+        """
+        Set the units per pixel for example (0.3 micrometer per pixel), 
         corresponding to positions ('set_positions')
 
         Args:
             units_per_pixel (float): scalar value
         """
-        self.units_per_pixel=units_per_pixel
+        self.units_per_pixel = units_per_pixel
 
-    def sniff_dimensions(self):#,dimensions=None,no_print=False):
+    def sniff_dimensions(self):  # ,dimensions=None,no_print=False):
         """
-        determine image dimensions from the first image
+        Determine image dimensions from the first image
         """
-        #if dimensions is not None:
+        # if dimensions is not None:
         #    self.dimensions=dimensions
-        #else:
-        self.dimensions=np.zeros([len(self.img_list),2],dtype=int)
+        # else:
+        self.dimensions = np.zeros([len(self.img_list), 2], dtype=int)
         if self.h5_mode:
-            img=self.get_img(0)
-            imgshape=img.shape
+            img = self.get_img(0)
+            imgshape = img.shape
         else:
-            imgshape=imagesize.get(self.img_list[0])        
-        for i in range(len(self.img_list)):    
-            self.dimensions[i]=imgshape            
+            imgshape = imagesize.get(self.img_list[0])
+        for i in range(len(self.img_list)):
+            self.dimensions[i] = imgshape
 
             # maybe still usefull, when different dimensions need to be considered
-            #for i in tqdm(range(len(self.img_list)),disable=no_print):
+            # for i in tqdm(range(len(self.img_list)),disable=no_print):
             #    if self.h5_mode:
             #        img=self.get_img(i)
             #        self.dimensions[i]=img.shape
             #    else:
-            #        self.dimensions[i]=imagesize.get(self.img_list[i])        
-    
-    def use_images_from(self,source="original"):
+            #        self.dimensions[i]=imagesize.get(self.img_list[i])
+
+    def use_images_from(self, source="original"):
         """
-        determine where 'get_img' takes an image from
+        Determine where 'get_img' takes an image from
 
         Args:
             source (string): source either corresponds to 'original' 
             or to the dataset name (for example: 'data') of the modifiable h5-file
         """
-        self.images_from=source
+        self.images_from = source
 
-    def set_print_mode(self,no_print=False):
+    def overwrite_modifiable_datasets(self,overwrite=True):
         """
-        prevent or enable print output
+        set the mode for overwriting (just inside the modifiable dataset)
+
+        Args:
+            overwrite (bool): set to 'False' to make sure that datasets in the
+            modifiabel h5-file are conserved
+            Defaults to 'True'
+        """
+        self.overwrite=overwrite
+
+    def set_print_mode(self, no_print=False):
+        """
+        Prevent or enable print output
 
         Args:
             no_print (bool): set to 'True' for silent execution 
             Defaults to 'False'
         """
-        self.no_print=no_print
+        self.no_print = no_print
 
-    def set_img(self,index,img,filename="temp.h5",dset_name="data"):
+    def set_img(self, index, img, filename="temp.h5", dset_name="data"):
         """
-        exchange the image with given index in the modifiable dataset
+        Exchange the image with given index in the modifiable dataset
 
         Args:
             index (int): index corresponding to the image be changed
@@ -230,12 +241,11 @@ class stack_and_stitching_object:
             print(self.warning_mod_is_none)
             return 0
         with h5py.File(self.modifiable_file, "r+") as f:
-            f[dset_name][index,:,:]=img
+            f[dset_name][index, :, :] = img
 
-
-    def create_h5cube_duplicate_for_modifying(self,filename="temp.h5",dset_name="data",force_dtype=False):
+    def create_h5cube_duplicate_for_modifying(self, filename="temp.h5", dset_name="data", force_dtype=False):
         """
-        create an h5 file containing the data as 3D-dataset
+        Create an h5 file containing the data as 3D-dataset
 
         Args:
             filename (string): name of the h5-file
@@ -249,92 +259,92 @@ class stack_and_stitching_object:
         """
         if not self.no_print:
             print("With 'use_images_from' the output of 'get_img' can be set to correspond to original or modified images")
-        self.modifiable_file=filename
+        self.modifiable_file = filename
         if force_dtype:
-            img=self.get_img(0)
-            self.dtype=img.dtype
+            img = self.get_img(0)
+            self.dtype = img.dtype
         else:
-            self.dtype="f4"
-        if len(np.unique(self.dimensions))>2:
-            #with h5py.File(filename, "w") as f:
+            self.dtype = "f4"
+        if len(np.unique(self.dimensions)) > 2:
+            # with h5py.File(filename, "w") as f:
             #    for i in tqdm(range(len(self.img_list)),disable=no_print):
             #        img=self.get_img(i)
             #        f["data"][str(i)]=img
             print("all images must have equal dimensions")
             return 0
         else:
-            newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
-        
-        with h5py.File(filename, "w") as f:
-            f.create_dataset(dset_name, newshape,self.dtype,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )#dtype="f4")
-            for i in tqdm(range(len(self.img_list)),disable=self.no_print):
-                img=self.get_img(i)
-                f[dset_name][i,:,:]=img
+            newshape = [len(self.img_list), self.dimensions[0][0], self.dimensions[0][1]]
 
-    def subtract_dark_field(self,dark_field,dset_name="data",new_dset_name=None):
+        with h5py.File(filename, "w") as f:
+            f.create_dataset(dset_name, newshape, self.dtype, chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))  # dtype="f4")
+            for i in tqdm(range(len(self.img_list)), disable=self.no_print):
+                img = self.get_img(i)
+                f[dset_name][i, :, :] = img
+
+    def subtract_dark_field(self, dark_field, dset_name="data", new_dset_name=None):
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
         with h5py.File(self.modifiable_file, "r+") as f:
             if new_dset_name is None:
-                new_dset_name=dset_name
+                new_dset_name = dset_name
             else:
-                newshape=f[dset_name].shape
-                f.create_dataset(new_dset_name, newshape,self.dtype,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )
-            
-            for i in range(len(self.img_list)):
-                f[new_dset_name][i,:,:]=np.maximum(f[dset_name][i,:,:]-dark_field,0)
+                newshape = f[dset_name].shape
+                f.create_dataset(new_dset_name, newshape, self.dtype, chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
-    def stats(self,histogram=True,histo_levels=100,dset_name=None,mask=None):
-        stack_max=-np.inf
-        stack_min=np.inf
+            for i in range(len(self.img_list)):
+                f[new_dset_name][i, :, :] = np.maximum(f[dset_name][i, :, :] - dark_field, 0)
+
+    def stats(self, histogram=True, histo_levels=100, dset_name=None, mask=None):
+        stack_max = -np.inf
+        stack_min = np.inf
         easy_iterate = dset_name is None
         if not easy_iterate:
             if self.modifiable_file is None:
                 print(self.warning_mod_is_none)
                 return 0
             with h5py.File(self.modifiable_file, "r") as f:
-                if len(f[dset_name].shape)==3:
-                    easy_iterate=True            
+                if len(f[dset_name].shape) == 3:
+                    easy_iterate = True
 
         if easy_iterate:
-            for i in tqdm(range(len(self.img_list)),disable=self.no_print,desc="min/max"):
-                img=self.get_img(i)
-                stack_max=max(np.max(img),stack_max)
-                stack_min=min(np.min(img),stack_min)
-            
+            for i in tqdm(range(len(self.img_list)), disable=self.no_print, desc="min/max"):
+                img = self.get_img(i)
+                stack_max = max(np.max(img), stack_max)
+                stack_min = min(np.min(img), stack_min)
+
             if histogram:
-                bin_edges=np.linspace(stack_min,stack_max,histo_levels+1)
-                cumulative=np.zeros(histo_levels)
-                for i in tqdm(range(len(self.img_list)),disable=self.no_print,desc="histo"):
-                    hist, new_bins=np.histogram(np.ravel(self.get_img(i)),bins=bin_edges)
-                    cumulative+=hist
-                return stack_min,stack_max,bin_edges,hist
+                bin_edges = np.linspace(stack_min, stack_max, histo_levels + 1)
+                cumulative = np.zeros(histo_levels)
+                for i in tqdm(range(len(self.img_list)), disable=self.no_print, desc="histo"):
+                    hist, new_bins = np.histogram(np.ravel(self.get_img(i)), bins=bin_edges)
+                    cumulative += hist
+                return stack_min, stack_max, bin_edges, hist
             else:
-                return stack_min,stack_max
+                return stack_min, stack_max
         else:
             with h5py.File(self.modifiable_file, "r") as f:
                 chunk_rows, chunk_cols = f[dset_name].chunks
                 n_rows, n_cols = f[dset_name].shape
 
-                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows",disable=self.no_print):
+                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows", disable=self.no_print):
                     row_end = min(row_start + chunk_rows, n_rows)
 
                     # loop over column chunks
                     for col_start in range(0, n_cols, chunk_cols):
                         col_end = min(col_start + chunk_cols, n_cols)
-                        
+
                         # slice the 2D chunk
-                        tile=f[dset_name][row_start:row_end, col_start:col_end]
+                        tile = f[dset_name][row_start:row_end, col_start:col_end]
                         if mask:
-                            tile=tile[f[mask][row_start:row_end, col_start:col_end]]
-                        stack_max=max(np.max(tile),stack_max)
-                        stack_min=min(np.min(tile),stack_min)
+                            tile = tile[f[mask][row_start:row_end, col_start:col_end]]
+                        stack_max = max(np.max(tile), stack_max)
+                        stack_min = min(np.min(tile), stack_min)
 
                 if histogram:
-                    bin_edges=np.linspace(stack_min,stack_max,histo_levels+1)
-                    cumulative=np.zeros(histo_levels)
-                    for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows",disable=self.no_print):
+                    bin_edges = np.linspace(stack_min, stack_max, histo_levels + 1)
+                    cumulative = np.zeros(histo_levels)
+                    for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows", disable=self.no_print):
                         row_end = min(row_start + chunk_rows, n_rows)
 
                         # loop over column chunks
@@ -342,116 +352,112 @@ class stack_and_stitching_object:
                             col_end = min(col_start + chunk_cols, n_cols)
 
                             # slice the 2D chunk
-                            tile=f[dset_name][row_start:row_end, col_start:col_end]
+                            tile = f[dset_name][row_start:row_end, col_start:col_end]
                             if mask:
-                                tile=tile[f[mask][row_start:row_end, col_start:col_end]]
-                                hist, new_bins=np.histogram(tile,bins=bin_edges)
+                                tile = tile[f[mask][row_start:row_end, col_start:col_end]]
+                                hist, new_bins = np.histogram(tile, bins=bin_edges)
                             else:
-                                hist, new_bins=np.histogram(np.ravel(tile),bins=bin_edges)
-                            cumulative+=hist
+                                hist, new_bins = np.histogram(np.ravel(tile), bins=bin_edges)
+                            cumulative += hist
 
-                    return stack_min,stack_max,bin_edges,hist
+                    return stack_min, stack_max, bin_edges, hist
                 else:
-                    return stack_min,stack_max
+                    return stack_min, stack_max
 
-
-    def clip(self,vmin,vmax,dset_name="data",new_dset_name=None):
+    def clip(self, vmin, vmax, dset_name="data", new_dset_name=None):
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
 
-        newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
+        newshape = [len(self.img_list), self.dimensions[0][0], self.dimensions[0][1]]
         with h5py.File(self.modifiable_file, "r+") as f:
-            if len(f[dset_name].shape)==3:
+            if len(f[dset_name].shape) == 3:
                 if new_dset_name is None:
-                    new_dset_name=dset_name
+                    new_dset_name = dset_name
                 else:
-                    f.create_dataset(new_dset_name, newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )
+                    f.create_dataset(new_dset_name, newshape, dtype="f4", 
+                                     chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
-                #f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
-                for i in tqdm(range(len(self.img_list)),disable=self.no_print):
-                    f[new_dset_name][i,:,:]=np.clip(f[dset_name][i,:,:],vmin,vmax)#clipped
+                # f.create_dataset("data_corrected", newshape,dtype="f4",
+                #                chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+                for i in tqdm(range(len(self.img_list)), disable=self.no_print):
+                    f[new_dset_name][i, :, :] = np.clip(f[dset_name][i, :, :],
+                                                         vmin, vmax)  # clipped
 
             else:
-                
-                #image=f[dset_name]
+
+                # image=f[dset_name]
                 chunk_rows, chunk_cols = f[dset_name].chunks
                 n_rows, n_cols = f[dset_name].shape
                 if new_dset_name is None:
-                    new_dset_name=dset_name
+                    new_dset_name = dset_name
                 else:
                     f.create_dataset(
                                 new_dset_name,
-                                shape=(n_rows,n_cols),
+                                shape=(n_rows, n_cols),
                                 dtype="float32",
                                 chunks=(chunk_rows, chunk_cols),
-                                #fillvalue=0   
+                                # fillvalue=0
                             )
-                    
-                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows",disable=self.no_print):
+
+                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows", disable=self.no_print):
                     row_end = min(row_start + chunk_rows, n_rows)
 
                     # loop over column chunks
                     for col_start in range(0, n_cols, chunk_cols):
                         col_end = min(col_start + chunk_cols, n_cols)
-                        
+
                         # slice the 2D chunk
-                        f[new_dset_name][row_start:row_end, col_start:col_end] = np.clip(f[dset_name][row_start:row_end, col_start:col_end],vmin,vmax)
+                        f[new_dset_name][row_start:row_end, col_start:col_end] = np.clip(f[dset_name][row_start:row_end, col_start:col_end], vmin, vmax)
 
-
-        
-    def normalize(self,old_min,old_max,new_min,new_max,dset_name="data",new_dset_name=None):
+    def normalize(self, old_min, old_max, new_min, new_max, dset_name="data", new_dset_name=None):
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
 
-        old_delta=old_max-old_min
-        new_delta=new_max-new_min
-        factor=new_delta/old_delta
-        newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
+        old_delta = old_max - old_min
+        new_delta = new_max - new_min
+        factor = new_delta / old_delta
+        newshape = [len(self.img_list), self.dimensions[0][0], self.dimensions[0][1]]
         with h5py.File(self.modifiable_file, "r+") as f:
-            if len(f[dset_name].shape)==3:
+            if len(f[dset_name].shape) == 3:
                 if new_dset_name is None:
-                    new_dset_name=dset_name
+                    new_dset_name = dset_name
                 else:
-                    f.create_dataset(new_dset_name, newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )
+                    f.create_dataset(new_dset_name, newshape, dtype="f4", chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
-            
-                #f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
-                for i in tqdm(range(len(self.img_list)),disable=self.no_print):
-                    f[new_dset_name][i,:,:]=(f[dset_name][i,:,:]-old_min)*factor +new_min
+                # f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+                for i in tqdm(range(len(self.img_list)), disable=self.no_print):
+                    f[new_dset_name][i, :, :] = (f[dset_name][i, :, :] - old_min) * factor + new_min
             else:
-                
-                #image=f[dset_name]
+
+                # image=f[dset_name]
                 chunk_rows, chunk_cols = f[dset_name].chunks
                 n_rows, n_cols = f[dset_name].shape
                 if new_dset_name is None:
-                    new_dset_name=dset_name
+                    new_dset_name = dset_name
                 else:
                     f.create_dataset(
                                 new_dset_name,
-                                shape=(n_rows,n_cols),
+                                shape=(n_rows, n_cols),
                                 dtype="float32",
                                 chunks=(chunk_rows, chunk_cols),
-                                #fillvalue=0   
+                                # fillvalue=0
                             )
-                    
-                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows",disable=self.no_print):
+
+                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows", disable=self.no_print):
                     row_end = min(row_start + chunk_rows, n_rows)
 
                     # loop over column chunks
                     for col_start in range(0, n_cols, chunk_cols):
                         col_end = min(col_start + chunk_cols, n_cols)
-                        
+
                         # slice the 2D chunk
-                        f[new_dset_name][row_start:row_end, col_start:col_end] = (f[dset_name][row_start:row_end, col_start:col_end]-old_min)*factor +new_min
-          
+                        f[new_dset_name][row_start:row_end, col_start:col_end] = (f[dset_name][row_start:row_end, col_start:col_end] - old_min) * factor + new_min
 
-
-
-    def flat_field_generation(self,percentile_steps=19,subdiv=4,dset_name="data"):
+    def flat_field_generation(self, percentile_steps=19, subdiv=4, dset_name="data"):
         """
-        calculate a local flat field background by averaging percentiles
+        Calculate a local flat field background by averaging percentiles
 
         Args:
             percentile_steps (int > 1):
@@ -464,215 +470,211 @@ class stack_and_stitching_object:
             print(self.warning_mod_is_none)
             return 0
 
-        step=100/(percentile_steps+1)
-        steps=np.linspace(step,100-step,percentile_steps)
-        dims=self.dimensions[0]
-        flats=np.zeros([percentile_steps,dims[0],dims[1]])
-        subdiv_steps=int(dims[0]//4)
+        step = 100 / (percentile_steps + 1)
+        steps = np.linspace(step, 100 - step, percentile_steps)
+        dims = self.dimensions[0]
+        flats = np.zeros([percentile_steps, dims[0], dims[1]])
+        subdiv_steps = int(dims[0] // 4)
 
-        if self.mode=="memory":
-            flats=np.percentile(np.array(self.img_list),steps,axis=0)
+        if self.mode == "memory":
+            flats = np.percentile(np.array(self.img_list), steps, axis=0)
         else:
 
             with h5py.File(self.modifiable_file, "r") as f:
-                start_index=0
-                for i in range(1,subdiv):
+                start_index = 0
+                for i in range(1, subdiv):
                     if not self.no_print:
-                        print(str(i)+" out of "+str(subdiv)+" iterations")
-                    flats[:,start_index:i*subdiv_steps,:]=np.percentile(f[dset_name][:,start_index:i*subdiv_steps,:],steps,axis=0)                
+                        print(str(i) + " out of " + str(subdiv) + " iterations")
+                    flats[:, start_index:i * subdiv_steps, :] = np.percentile(f[dset_name][:, start_index:i * subdiv_steps, :], steps, axis=0)
                 if not self.no_print:
-                    print(str(subdiv)+" out of "+str(subdiv)+" iterations")
-                flats[:,(subdiv-1)*subdiv_steps:,:]=np.percentile(f[dset_name][:,(subdiv-1)*subdiv_steps:,:],steps,axis=0)
-        #flats=np.percentile(img_series,steps,axis=0)
-        self.flat_field=np.mean(flats,axis=0)
-        self.flats=flats
+                    print(str(subdiv) + " out of " + str(subdiv) + " iterations")
+                flats[:, (subdiv - 1) * subdiv_steps:, :] = np.percentile(f[dset_name][:, (subdiv - 1) * subdiv_steps:, :], steps, axis=0)
+        # flats=np.percentile(img_series,steps,axis=0)
+        self.flat_field = np.mean(flats, axis=0)
+        self.flats = flats
         return self.flat_field
 
-    def dust_from_flat_field(self,flat_field,threshold_block_size=17,morph_closing_size=5,dark_background=True,dilate=0):
-        th=  cv2.adaptiveThreshold(img_to_uint8(flat_field),255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,threshold_block_size,2) 
+    def dust_from_flat_field(self, flat_field, threshold_block_size=17, morph_closing_size=5, dark_background=True, dilate=0):
+        th = cv2.adaptiveThreshold(img_to_uint8(flat_field), 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, threshold_block_size, 2)
         kernel = np.ones((morph_closing_size, morph_closing_size), np.uint8)
         closed = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel)
-    
+
         if dark_background:
-            num,img=cv2.connectedComponents(255-closed)
+            num, img = cv2.connectedComponents(255 - closed)
         else:
-            num,img=cv2.connectedComponents(closed)
+            num, img = cv2.connectedComponents(closed)
         if not self.no_print:
-            print(str(num)+" dust particles found")
-    
-        img_d=cv2.dilate(img.astype(np.uint8),np.ones([3,3],dtype=np.uint8))
-        last=np.copy(img)
+            print(str(num) + " dust particles found")
+
+        img_d = cv2.dilate(img.astype(np.uint8), np.ones([3, 3], dtype=np.uint8))
+        last = np.copy(img)
         for i in range(dilate):
-            last=np.copy(img_d)
-            img_d=cv2.dilate(img_d,np.ones([3,3],dtype=np.uint8))
-            
-            
-        rings=img_d-last
-    
-        self.dust_dict=dict()
-        for i in range(num-1):
-            self.dust_dict[i]=list() 
-            #dust indices
-            self.dust_dict[i].append(np.where(last==i+1))
-    
-            #ring indices
-            self.dust_dict[i].append(np.where(rings==i+1))
+            last = np.copy(img_d)
+            img_d = cv2.dilate(img_d, np.ones([3, 3], dtype=np.uint8))
+
+        rings = img_d - last
+
+        self.dust_dict = dict()
+        for i in range(num - 1):
+            self.dust_dict[i] = list()
+            # dust indices
+            self.dust_dict[i].append(np.where(last == i + 1))
+
+            # ring indices
+            self.dust_dict[i].append(np.where(rings == i + 1))
         self.dust_dict
         return last
 
-    def dust_removal(self,img,mode="median"):
-        #needs temp data
-        result=np.copy(img)
+    def dust_removal(self, img, mode="median"):
+        # needs temp data
+        result = np.copy(img)
         for i in self.dust_dict:
-            if len(self.dust_dict[i][1][0])<1:
+            if len(self.dust_dict[i][1][0]) < 1:
                 print("Warning: empty ring")
-            if mode=="median":
-                ring_values=np.median(img[self.dust_dict[i][1]])
-            elif mode=="mean":        
-                ring_values=np.mean(img[self.dust_dict[i][1]])
-            elif mode=="normal":
-                ring_values=np.mean(img[self.dust_dict[i][1]])
-                ring_std=np.std(img[self.dust_dict[i][1]],mean=ring_values)
-                ring_values=np.random.normal(ring_values,ring_std,len(img[self.dust_dict[i][1]]))
-            
-            result[self.dust_dict[i][0]]=ring_values
+            if mode == "median":
+                ring_values = np.median(img[self.dust_dict[i][1]])
+            elif mode == "mean":
+                ring_values = np.mean(img[self.dust_dict[i][1]])
+            elif mode == "normal":
+                ring_values = np.mean(img[self.dust_dict[i][1]])
+                ring_std = np.std(img[self.dust_dict[i][1]], mean=ring_values)
+                ring_values = np.random.normal(ring_values, ring_std, len(img[self.dust_dict[i][1]]))
+
+            result[self.dust_dict[i][0]] = ring_values
         return result
-    
+
     def dust_removal_all(self,):
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
-        self.flat_field=self.dust_removal(self.flat_field)
+        self.flat_field = self.dust_removal(self.flat_field)
         with h5py.File(self.modifiable_file, "r+") as f:
             for i in range(len(self.img_list)):
-                f["data"][i,:,:]=self.dust_removal(f["data"][i,:,:])
+                f["data"][i, :, :] = self.dust_removal(f["data"][i, :, :])
 
-    def flat_field_correction(self,flat_field=None,dset_name="data",new_dset_name=None):
+    def flat_field_correction(self, flat_field=None, dset_name="data", new_dset_name=None):
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
         if flat_field is None:
-            flat_field=self.flat_field
-        if np.min(flat_field)<=0:
-            flat_field=flat_field.astype(np.double)
-            flat_field[flat_field<=0]=np.inf
-            flat_field[flat_field==np.inf]=np.min(flat_field)
-        
-        newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
+            flat_field = self.flat_field
+        if np.min(flat_field) <= 0:
+            flat_field = flat_field.astype(np.double)
+            flat_field[flat_field <= 0] = np.inf
+            flat_field[flat_field == np.inf] = np.min(flat_field)
+
+        newshape = [len(self.img_list), self.dimensions[0][0], self.dimensions[0][1]]
         with h5py.File(self.modifiable_file, "r+") as f:
             if new_dset_name is None:
-                new_dset_name=dset_name
+                new_dset_name = dset_name
             else:
-                f.create_dataset(new_dset_name, newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )
+                f.create_dataset(new_dset_name, newshape, dtype="f4", chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
-            #f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
-            for i in tqdm(range(len(self.img_list)),disable=self.no_print):
-                f[new_dset_name][i,:,:]=f[dset_name][i,:,:]/flat_field  
+            # f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+            for i in tqdm(range(len(self.img_list)), disable=self.no_print):
+                f[new_dset_name][i, :, :] = f[dset_name][i, :, :] / flat_field
 
-    def convert_to_uint16(self,real_zero=False):#,newdtype=np.uint16):
+    def convert_to_uint16(self, real_zero=False):  # ,newdtype=np.uint16):
 
-        img_maxs=np.zeros(len(self.img_list))
-        img_mins=np.zeros(len(self.img_list))        
+        img_maxs = np.zeros(len(self.img_list))
+        img_mins = np.zeros(len(self.img_list))
         with h5py.File(self.modifiable_file, "r") as f:
             for i in range(len(self.img_list)):
-                corr=f["data_corrected"][i,:,:]  
-                img_maxs[i]=np.max(corr)
-                img_mins[i]=np.min(corr)                     
+                corr = f["data_corrected"][i, :, :]
+                img_maxs[i] = np.max(corr)
+                img_mins[i] = np.min(corr)
 
-            img_min=np.min(img_mins)
-            img_max=np.max(img_maxs)
-            div=img_max-img_min
-                
-            newname=self.modifiable_file[:-3]+"_very_temporary.h5"
-            newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
+            img_min = np.min(img_mins)
+            img_max = np.max(img_maxs)
+            div = img_max - img_min
+
+            newname = self.modifiable_file[:-3] + "_very_temporary.h5"
+            newshape = [len(self.img_list), self.dimensions[0][0], self.dimensions[0][1]]
             with h5py.File(newname, "w") as tf:
-                tf.create_dataset("data", newshape,np.uint16,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+                tf.create_dataset("data", newshape, np.uint16, chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
                 for i in range(len(self.img_list)):
-                    corr=((f["data_corrected"][i,:,:]-img_min)/div) * 65535  
-                    tf["data"][i,:,:]=corr.astype(np.uint16)
+                    corr = ((f["data_corrected"][i, :, :] - img_min) / div) * 65535
+                    tf["data"][i, :, :] = corr.astype(np.uint16)
             if real_zero:
-                newname=self.modifiable_file[:-3]+"_real_zero.h5"
+                newname = self.modifiable_file[:-3] + "_real_zero.h5"
                 with h5py.File(newname, "w") as tf:
-                    tf.create_dataset("data", newshape,np.uint16,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+                    tf.create_dataset("data", newshape, np.uint16, chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
                     for i in range(len(self.img_list)):
-                        corr=(f["data_corrected"][i,:,:]/img_max) * 65535  
-                        tf["data"][i,:,:]=corr.astype(np.uint16)
+                        corr = (f["data_corrected"][i, :, :] / img_max) * 65535
+                        tf["data"][i, :, :] = corr.astype(np.uint16)
 
         os.remove(self.modifiable_file)
-        os.rename(self.modifiable_file[:-3]+"_very_temporary.h5",self.modifiable_file)
+        os.rename(self.modifiable_file[:-3] + "_very_temporary.h5", self.modifiable_file)
 
-
-    def make_polygons(self,units_per_pixel=None,positions=None,dimensions=None,orientation=0):
+    def make_polygons(self, units_per_pixel=None, positions=None, dimensions=None, orientation=0):
         if units_per_pixel is None:
-            units_per_pixel=self.units_per_pixel
+            units_per_pixel = self.units_per_pixel
         if positions is None:
-            positions=self.positions
+            positions = self.positions
         if dimensions is None:
-            dimensions=self.dimensions
+            dimensions = self.dimensions
 
-        N=len(positions)
-        anchor_points=np.zeros([N,2])
-        polygons=[]
-        im_size=units_per_pixel*dimensions
-        
-        side0comp=np.ones(N)
-        side1comp=np.zeros(N)
-            
+        N = len(positions)
+        anchor_points = np.zeros([N, 2])
+        polygons = []
+        im_size = units_per_pixel * dimensions
+
+        side0comp = np.ones(N)
+        side1comp = np.zeros(N)
+
         for i in range(N):
-            deltax=im_size[i,1]*np.array([side0comp[i],side1comp[i]])
-            deltay=im_size[i,0]*np.array([-side1comp[i],side0comp[i]])
-            p0=positions[i]+deltax/2-deltay/2
-            p1=p0-deltax
-            p2=p1+deltay
-            p3=p2+deltax
-            polygons.append(shapely.geometry.Polygon([p0,p1,p2,p3]))
-            if orientation==0:
-                anchor_points[i]=p0
-            elif orientation==1:
-                anchor_points[i]=p1
-            elif orientation==2:
-                anchor_points[i]=p2
-            elif orientation==3:
-                anchor_points[i]=p3
-        self.polygons=polygons
-        self.anchor_points=anchor_points
-        return polygons,anchor_points
+            deltax = im_size[i, 1] * np.array([side0comp[i], side1comp[i]])
+            deltay = im_size[i, 0] * np.array([-side1comp[i], side0comp[i]])
+            p0 = positions[i] + deltax / 2 - deltay / 2
+            p1 = p0 - deltax
+            p2 = p1 + deltay
+            p3 = p2 + deltax
+            polygons.append(shapely.geometry.Polygon([p0, p1, p2, p3]))
+            if orientation == 0:
+                anchor_points[i] = p0
+            elif orientation == 1:
+                anchor_points[i] = p1
+            elif orientation == 2:
+                anchor_points[i] = p2
+            elif orientation == 3:
+                anchor_points[i] = p3
+        self.polygons = polygons
+        self.anchor_points = anchor_points
+        return polygons, anchor_points
 
-
-
-    def connection_groups(self,polygons=None,units_per_pixel=None,minimal_number_of_pixels=64,inverse=False):
+    def connection_groups(self, polygons=None, units_per_pixel=None, minimal_number_of_pixels=64, inverse=False):
         if polygons is None:
-            polygons=self.polygons
+            polygons = self.polygons
         if units_per_pixel is None:
-            units_per_pixel=self.units_per_pixel
-    
-        N=len(polygons)
-        square_units=units_per_pixel*units_per_pixel
+            units_per_pixel = self.units_per_pixel
+
+        N = len(polygons)
+        square_units = units_per_pixel * units_per_pixel
         G = nx.Graph()
         G.add_nodes_from(np.arange(N))
-        
-        for i in range(N-1):
-            for j in range(i+1,N):
-                inter=shapely.intersection(polygons[i],polygons[j])
-                area=inter.area/square_units
-                cond1=area>minimal_number_of_pixels
+
+        for i in range(N - 1):
+            for j in range(i + 1, N):
+                inter = shapely.intersection(polygons[i], polygons[j])
+                area = inter.area / square_units
+                cond1 = area > minimal_number_of_pixels
                 if cond1:
                     if inverse:
-                        G.add_edge(i,j,weight=1/area)
+                        G.add_edge(i, j, weight=1 / area)
                     else:
-                        G.add_edge(i,j,weight=area)
-    
-        con_groups=[]
+                        G.add_edge(i, j, weight=area)
+
+        con_groups = []
         for i in nx.connected_components(G):
             con_groups.append(np.array(list(G.subgraph(i).edges)))
-        self.G=G
-        if len(con_groups)>1:
+        self.G = G
+        if len(con_groups) > 1:
             print("not all images can be connected via overlap")
             print("sorting out of non-connected images needed")
-        self.con_group=con_groups[0]
-        return G,con_groups
+        self.con_group = con_groups[0]
+        return G, con_groups
 
-    def plot_connection_network(self,figsize=[15,15],relative=True):
+    def plot_connection_network(self, figsize=[15, 15], relative=True):
         plt.figure(figsize=figsize)
         if relative:
             plt.title("percentage of maximum neighbor-overlap")
@@ -681,284 +683,274 @@ class stack_and_stitching_object:
 
         nx.draw(self.G, pos=self.positions, with_labels=True,)
         edge_labels = nx.get_edge_attributes(self.G, "weight")
-        keylist=list(edge_labels.keys())
-        maxval=0
+        keylist = list(edge_labels.keys())
+        maxval = 0
         for i in keylist:
-            area=edge_labels[i]
-            maxval=np.maximum(area,maxval)
+            area = edge_labels[i]
+            maxval = np.maximum(area, maxval)
         for i in keylist:
             if relative:
-                edge_labels[i]=np.round(edge_labels[i]/maxval * 100,1)
+                edge_labels[i] = np.round(edge_labels[i] / maxval * 100, 1)
             else:
-                edge_labels[i]=int(np.round(edge_labels[i]))
-        nx.draw_networkx_edge_labels(self.G, self.positions, edge_labels,label_pos=0.3)
+                edge_labels[i] = int(np.round(edge_labels[i]))
+        nx.draw_networkx_edge_labels(self.G, self.positions, edge_labels, label_pos=0.3)
         plt.show()
 
-
-    def get_outer_polygon_limits(self,polygons):
-        minx=np.inf
-        miny=np.inf
-        maxx=-np.inf
-        maxy=-np.inf    
+    def get_outer_polygon_limits(self, polygons):
+        minx = np.inf
+        miny = np.inf
+        maxx = -np.inf
+        maxy = -np.inf
         for polygon in polygons:
-            #if not isinstance(i,float):
-            x,y=polygon.exterior.xy
-            pminx,pmaxx=np.min(x),np.max(x)
-            pminy,pmaxy=np.min(y),np.max(y)
-    
-     
-            minx=min(pminx,minx)
-            miny=min(pminy,miny)
-            maxx=max(pmaxx,maxx)
-            maxy=max(pmaxy,maxy)
-        
-    
-        points=np.zeros([4,2])
-        points[0]=minx,miny
-        points[1]=maxx,miny
-        points[2]=maxx,maxy
-        points[3]=minx,maxy
+            # if not isinstance(i,float):
+            x, y = polygon.exterior.xy
+            pminx, pmaxx = np.min(x), np.max(x)
+            pminy, pmaxy = np.min(y), np.max(y)
+
+            minx = min(pminx, minx)
+            miny = min(pminy, miny)
+            maxx = max(pmaxx, maxx)
+            maxy = max(pmaxy, maxy)
+
+        points = np.zeros([4, 2])
+        points[0] = minx, miny
+        points[1] = maxx, miny
+        points[2] = maxx, maxy
+        points[3] = minx, maxy
         return points
-    
-    
-    def close_translation_by_phase_correlation(self,im1,im2,sigma=1,max_transl=None):
-        
-        #dims=im1.shape
-            
-        mat=phase_correlation(im1,im2)
-        #matb=cv2.blur(mat,[blur,blur])
-        ksize=int(sigma*4)
-        if ksize%2==0:
-            ksize+=1
-        matb=cv2.GaussianBlur(mat,[ksize,ksize],sigma)#,cv2.BORDER_WRAP)
-        mat0=matb-np.min(matb)
-        
-        dims=mat0.shape
-        
-        mean=np.mean(mat0)
-        std=np.std(mat0)
-        #print(std)
+
+    def close_translation_by_phase_correlation(self, im1, im2, sigma=1, max_transl=None):
+
+        # dims=im1.shape
+
+        mat = phase_correlation(im1, im2)
+        # matb=cv2.blur(mat,[blur,blur])
+        ksize = int(sigma * 4)
+        if ksize % 2 == 0:
+            ksize += 1
+        matb = cv2.GaussianBlur(mat, [ksize, ksize], sigma)  # ,cv2.BORDER_WRAP)
+        mat0 = matb - np.min(matb)
+
+        dims = mat0.shape
+
+        mean = np.mean(mat0)
+        std = np.std(mat0)
+        # print(std)
         if max_transl:
-            img_mask=np.zeros(dims)
-            img_mask[:max_transl[0]+1,:max_transl[1]+1]=1
-            img_mask[:max_transl[0]+1,-max_transl[1]:]=1
-            img_mask[-max_transl[0]:,:max_transl[1]+1]=1
-            img_mask[-max_transl[0]:,-max_transl[1]:]=1
-            #plt.imshow(img_mask)
+            img_mask = np.zeros(dims)
+            img_mask[:max_transl[0] + 1, :max_transl[1] + 1] = 1
+            img_mask[:max_transl[0] + 1, -max_transl[1]:] = 1
+            img_mask[-max_transl[0]:, :max_transl[1] + 1] = 1
+            img_mask[-max_transl[0]:, -max_transl[1]:] = 1
+            # plt.imshow(img_mask)
         else:
-            img_mask=np.ones(dims)
-            
-        matm=mat0*img_mask
-        
-        transl,maxval=max_from_2d(matm)
-        if transl[0]>dims[0]/2:
-            transl[0]-=dims[0]
-        if transl[1]>dims[1]/2:
-            transl[1]-=dims[1]
-    
-        
-        certainty=(maxval-mean)/std
-        return transl,certainty
-    
-    
-    def real_to_pixel(self,index,points,orientation=2):
-        unit_per_pixel=self.units_per_pixel
-        anchor_point=self.anchor_points[index]
-        points=np.vstack((points,anchor_point))
-        #print("sdfsdf")
-        #print(points)
-        points=points[:-1]-points[-1]
-        
+            img_mask = np.ones(dims)
+
+        matm = mat0 * img_mask
+
+        transl, maxval = max_from_2d(matm)
+        if transl[0] > dims[0] / 2:
+            transl[0] -= dims[0]
+        if transl[1] > dims[1] / 2:
+            transl[1] -= dims[1]
+
+        certainty = (maxval - mean) / std
+        return transl, certainty
+
+    def real_to_pixel(self, index, points, orientation=2):
+        unit_per_pixel = self.units_per_pixel
+        anchor_point = self.anchor_points[index]
+        points = np.vstack((points, anchor_point))
+        # print("sdfsdf")
+        # print(points)
+        points = points[:-1] - points[-1]
+
         points /= unit_per_pixel
-        points=points[:,::-1] #*-1
-        #if orientation==0:
+        points = points[:, ::-1]  # *-1
+        # if orientation==0:
         #    points[:,1] *= -1
-        if orientation==2:
-            points[:,0] *= -1
-        
-        return points#np.round(points).astype(int)
-    
-    def crop_from_points(self,img,points,shape=None):
-        vmin,hmin=np.min(points,axis=0)
-        vmax,hmax=np.max(points,axis=0)
-        
-        vmin_int=int(np.round(vmin))
-        vmax_int=int(np.round(vmax))
-        hmin_int=int(np.round(hmin))
-        hmax_int=int(np.round(hmax))
-        #print(shape)
-        #print("----------")
-        #print(vmax-vmin)
-        if shape:# is not None:
-            if vmax_int-vmin_int > shape[0]: #bigger than intended
-                lower_residual=vmin_int-vmin # negative makes smaller
-                upper_residual=vmax-vmax_int # positive makes bigger
-                if lower_residual<upper_residual:
-                    vmin_int+=1
+        if orientation == 2:
+            points[:, 0] *= -1
+
+        return points  # np.round(points).astype(int)
+
+    def crop_from_points(self, img, points, shape=None):
+        vmin, hmin = np.min(points, axis=0)
+        vmax, hmax = np.max(points, axis=0)
+
+        vmin_int = int(np.round(vmin))
+        vmax_int = int(np.round(vmax))
+        hmin_int = int(np.round(hmin))
+        hmax_int = int(np.round(hmax))
+        # print(shape)
+        # print("----------")
+        # print(vmax-vmin)
+        if shape:  # is not None:
+            if vmax_int - vmin_int > shape[0]:  # bigger than intended
+                lower_residual = vmin_int - vmin  # negative makes smaller
+                upper_residual = vmax - vmax_int  # positive makes bigger
+                if lower_residual < upper_residual:
+                    vmin_int += 1
                 else:
-                    vmax_int-=1
-                
-            elif vmax_int-vmin_int < shape[0]: #smaller than intended
-                lower_residual=vmin_int-vmin # negative makes smaller
-                upper_residual=vmax-vmax_int # positive makes bigger
-                if lower_residual>upper_residual:
-                    vmin_int-=1
+                    vmax_int -= 1
+
+            elif vmax_int - vmin_int < shape[0]:  # smaller than intended
+                lower_residual = vmin_int - vmin  # negative makes smaller
+                upper_residual = vmax - vmax_int  # positive makes bigger
+                if lower_residual > upper_residual:
+                    vmin_int -= 1
                 else:
-                    vmax_int+=1
-                    
-            if hmax_int-hmin_int > shape[1]: #bigger than intended
-                lower_residual=hmin_int-hmin # negative makes smaller
-                upper_residual=hmax-hmax_int # positive makes bigger
-                if lower_residual<upper_residual:
-                    hmin_int+=1
+                    vmax_int += 1
+
+            if hmax_int - hmin_int > shape[1]:  # bigger than intended
+                lower_residual = hmin_int - hmin  # negative makes smaller
+                upper_residual = hmax - hmax_int  # positive makes bigger
+                if lower_residual < upper_residual:
+                    hmin_int += 1
                 else:
-                    hmax_int-=1
-                
-            elif hmax_int-hmin_int < shape[1]: #smaller than intended
-                lower_residual=hmin_int-hmin # negative makes smaller
-                upper_residual=hmax-hmax_int # positive makes bigger
-                if lower_residual>upper_residual:
-                    hmin_int-=1
+                    hmax_int -= 1
+
+            elif hmax_int - hmin_int < shape[1]:  # smaller than intended
+                lower_residual = hmin_int - hmin  # negative makes smaller
+                upper_residual = hmax - hmax_int  # positive makes bigger
+                if lower_residual > upper_residual:
+                    hmin_int -= 1
                 else:
-                    hmax_int+=1
-            
-        return img[vmin_int:vmax_int,hmin_int:hmax_int]
-    
-    
-    def pixel_to_real(self,index,points):
-        anchor_point=self.anchor_points[index]
-        unit_per_pixel=self.units_per_pixel
-        vec1=np.array([unit_per_pixel,0])
-        vec0=np.array([0,unit_per_pixel])
-        real_points=np.empty(points.shape)
+                    hmax_int += 1
+
+        return img[vmin_int:vmax_int, hmin_int:hmax_int]
+
+    def pixel_to_real(self, index, points):
+        anchor_point = self.anchor_points[index]
+        unit_per_pixel = self.units_per_pixel
+        vec1 = np.array([unit_per_pixel, 0])
+        vec0 = np.array([0, unit_per_pixel])
+        real_points = np.empty(points.shape)
         for i in range(len(points)):
-            real_points[i]=points[i,1]*vec1-points[i,0]*vec0    
-            real_points[i]+=anchor_point        
+            real_points[i] = points[i, 1] * vec1 - points[i, 0] * vec0
+            real_points[i] += anchor_point
         return real_points
 
-
     def ordered_edge_sequence(self):
-        tuple_sequence=[]
-        tuple_array=np.array(self.G.edges())
-        booleans=np.ones(len(tuple_array),dtype=bool)
+        tuple_sequence = []
+        tuple_array = np.array(self.G.edges())
+        booleans = np.ones(len(tuple_array), dtype=bool)
         for i in range(len(self.img_list)):
-            for  j in range(len(tuple_array)):
+            for j in range(len(tuple_array)):
                 if booleans[j]:
-                    if tuple_array[j][0]==i:
+                    if tuple_array[j][0] == i:
                         tuple_sequence.append(tuple_array[j])
-                        booleans[j]=False
-                    elif tuple_array[j][1]==i:
+                        booleans[j] = False
+                    elif tuple_array[j][1] == i:
                         tuple_sequence.append(tuple_array[j][::-1])
-                        booleans[j]=False
-        self.edge_sequence=tuple_sequence
+                        booleans[j] = False
+        self.edge_sequence = tuple_sequence
 
-    def check_pairs(self,max_transl_pix=None,sigma=1,check_data=False):
-        
-        shifts=[]
-        if check_data:        
-            croplist1=[]
-            croplist2=[]
-        
-        #pairs=np.array(self.G.edges())
+    def check_pairs(self, max_transl_pix=None, sigma=1, check_data=False):
+
+        shifts = []
+        if check_data:
+            croplist1 = []
+            croplist2 = []
+
+        # pairs=np.array(self.G.edges())
         self.ordered_edge_sequence()
-        pairs=self.edge_sequence
-        old_index1=-1
-        
-        for pair in tqdm(pairs,disable=self.no_print):
+        pairs = self.edge_sequence
+        old_index1 = -1
 
-            index1=pair[0]
-            index2=pair[1]
-        
-            poly1=self.polygons[index1]
-            poly2=self.polygons[index2]
-        
-            overlap=shapely.intersection(poly1,poly2)
-            overlap_coord=np.array(overlap.oriented_envelope.exterior.xy).T[:-1]
-        
-        
-            im1_overlap_coord=self.real_to_pixel(index1,
-                            overlap_coord)
-    
-            im2_overlap_coord=self.real_to_pixel(index2,
+        for pair in tqdm(pairs, disable=self.no_print):
+
+            index1 = pair[0]
+            index2 = pair[1]
+
+            poly1 = self.polygons[index1]
+            poly2 = self.polygons[index2]
+
+            overlap = shapely.intersection(poly1, poly2)
+            overlap_coord = np.array(overlap.oriented_envelope.exterior.xy).T[:-1]
+
+            im1_overlap_coord = self.real_to_pixel(index1,
                             overlap_coord)
 
-            im2=self.get_img(index2)
-            im2_crop=self.crop_from_points(im2,im2_overlap_coord)
-        
-            if old_index1!=index1:
-                im1=self.get_img(index1)
-                old_index1=index1
+            im2_overlap_coord = self.real_to_pixel(index2,
+                            overlap_coord)
 
-            im1_crop=self.crop_from_points(im1,im1_overlap_coord)
-            
+            im2 = self.get_img(index2)
+            im2_crop = self.crop_from_points(im2, im2_overlap_coord)
+
+            if old_index1 != index1:
+                im1 = self.get_img(index1)
+                old_index1 = index1
+
+            im1_crop = self.crop_from_points(im1, im1_overlap_coord)
+
             if check_data:
                 croplist1.append(im1_crop)
                 croplist2.append(im2_crop)
-            
-            pix_transl,certainty=self.close_translation_by_phase_correlation(im1_crop[:,:],im2_crop[:,:],
-                                                                             sigma=sigma,max_transl=max_transl_pix)#*im1_crop[:,:,1]
-        
-            real_transl=self.units_per_pixel*pix_transl[::-1]
-            real_transl[1]*=-1
-            
-            shifts.append(self.positions[index2]-self.positions[index1]+real_transl)
 
-        pcm_distances=dict()
-        edge_tuples=list(map(tuple, pairs))
-        for i,edge in enumerate(edge_tuples):
-            pcm_distances[edge]=shifts[i]
+            pix_transl, certainty = self.close_translation_by_phase_correlation(im1_crop[:, :], im2_crop[:, :],
+                                                                             sigma=sigma, max_transl=max_transl_pix)  # *im1_crop[:,:,1]
 
-        self.pcm_distances=pcm_distances
-        self.edge_tuples=edge_tuples
+            real_transl = self.units_per_pixel * pix_transl[::-1]
+            real_transl[1] *= -1
+
+            shifts.append(self.positions[index2] - self.positions[index1] + real_transl)
+
+        pcm_distances = dict()
+        edge_tuples = list(map(tuple, pairs))
+        for i, edge in enumerate(edge_tuples):
+            pcm_distances[edge] = shifts[i]
+
+        self.pcm_distances = pcm_distances
+        self.edge_tuples = edge_tuples
 
         if check_data:
-            return pcm_distances,croplist1,croplist2
+            return pcm_distances, croplist1, croplist2
         else:
             return pcm_distances
 
     @staticmethod
-    def _residuals(posflat,edge_tuples,pcm_distances):
-        n=int(len(posflat)//2)
+    def _residuals(posflat, edge_tuples, pcm_distances):
+        n = int(len(posflat) // 2)
         pts = posflat.reshape(n, 2)
         r = []
 
         for i, j in edge_tuples:
-            r.append( np.linalg.norm(pts[j] - pts[i]- pcm_distances[i, j]))
+            r.append(np.linalg.norm(pts[j] - pts[i] - pcm_distances[i, j]))
 
         return np.array(r)
 
-    def optimize_positions(self,verbose=True):
+    def optimize_positions(self, verbose=True):
 
         n_res = len(self.edge_tuples)
-        n_var = len(self.positions)*2
+        n_var = len(self.positions) * 2
 
         S = lil_matrix((n_res, n_var))
 
-        counter=0
-        for i,j in self.edge_tuples:
-            S[counter,2*i]=1
-            S[counter,2*i+1]=1
-            S[counter,2*j]=1
-            S[counter,2*j+1]=1
-            counter+=1
+        counter = 0
+        for i, j in self.edge_tuples:
+            S[counter, 2 * i] = 1
+            S[counter, 2 * i + 1] = 1
+            S[counter, 2 * j] = 1
+            S[counter, 2 * j + 1] = 1
+            counter += 1
 
-        x0=np.ravel(self.positions)
+        x0 = np.ravel(self.positions)
         if verbose:
-            verbose_level=2
+            verbose_level = 2
         else:
-            verbose_level=0
+            verbose_level = 0
 
         result = least_squares(
             self._residuals,
             x0,
             jac_sparsity=S,
-            args=(self.edge_tuples,self.pcm_distances),
+            args=(self.edge_tuples, self.pcm_distances),
             method='trf',
             verbose=verbose_level
         )
 
-
-        final=result.x.reshape(len(self.positions),2)
+        final = result.x.reshape(len(self.positions), 2)
 
         moved_polygons = [
             shapely.affinity.translate(poly, xoff=px - poly.centroid.x, yoff=py - poly.centroid.y)
@@ -966,22 +958,21 @@ class stack_and_stitching_object:
         ]
         return moved_polygons
 
+    def map_from_polygons_h5(self, polygons, h5file=None, blending="average", custom_mask=None, boolean_mask=False):
 
-    def map_from_polygons_h5(self,polygons,h5file=None,blending="average",custom_mask=None,boolean_mask=False):
-        
         if h5file is None and self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
         if h5file is None:
-            h5file=self.modifiable_file
+            h5file = self.modifiable_file
 
-        start_index=0
-        outer_realspace=self.get_outer_polygon_limits(polygons)
-        pixelouter=self.real_to_pixel(start_index,outer_realspace)
-        pixelouter=np.round(pixelouter).astype(int)
-        offset_x_y=-np.min(pixelouter,axis=0)
-        image_dims=np.max(pixelouter,axis=0)+offset_x_y
-        division_needed=blending not in ("hard_cut","minimum","maximum")
+        start_index = 0
+        outer_realspace = self.get_outer_polygon_limits(polygons)
+        pixelouter = self.real_to_pixel(start_index, outer_realspace)
+        pixelouter = np.round(pixelouter).astype(int)
+        offset_x_y = -np.min(pixelouter, axis=0)
+        image_dims = np.max(pixelouter, axis=0) + offset_x_y
+        division_needed = blending not in ("hard_cut", "minimum", "maximum")
 
         with h5py.File(h5file, "a") as f:
 
@@ -991,16 +982,16 @@ class stack_and_stitching_object:
                             shape=image_dims,
                             dtype="float32",
                             chunks=(512, 512),
-                            fillvalue=0   
+                            fillvalue=0
                         )
-                
+
             if boolean_mask:
                 bmask = f.create_dataset(
                             "boolean_mask",
                             shape=image_dims,
                             dtype="bool",
                             chunks=(512, 512),
-                            fillvalue=False   
+                            fillvalue=False
                         )
 
             image = f.create_dataset(
@@ -1008,223 +999,216 @@ class stack_and_stitching_object:
                         shape=image_dims,
                         dtype="float32",
                         chunks=(512, 512),
-                        fillvalue=0   
+                        fillvalue=0
                     )
 
             chunk_rows, chunk_cols = image.chunks
 
-            imshape=self.dimensions[0]
-            if blending in ("minimum","maximum"):
-                stack=np.empty([imshape[0],imshape[1],2])
-            elif blending =="linear":
-                blending_helper=np.ones(imshape)     
-                blending_helper=img_padding_attenuation(blending_helper,imshape//2,mode="linear")   
-            elif blending=="quadratic":
-                blending_helper=np.ones(imshape)     
-                blending_helper=img_padding_attenuation(blending_helper,imshape,mode="linear")   
+            imshape = self.dimensions[0]
+            if blending in ("minimum", "maximum"):
+                stack = np.empty([imshape[0], imshape[1], 2])
+            elif blending == "linear":
+                blending_helper = np.ones(imshape)
+                blending_helper = img_padding_attenuation(blending_helper, imshape // 2, mode="linear")
+            elif blending == "quadratic":
+                blending_helper = np.ones(imshape)
+                blending_helper = img_padding_attenuation(blending_helper, imshape, mode="linear")
 
-            for index,poly in enumerate(tqdm(polygons,disable=self.no_print)):
-                np_realspace=np.array(poly.oriented_envelope.exterior.xy).T[:-1]
-                np_pixelspace=np.round(self.real_to_pixel(start_index,np_realspace)).astype(int)
-                image_pixelspace=np_pixelspace+offset_x_y
-                img=self.get_img(index)
-                img_start=np.min(image_pixelspace,axis=0)
-                #img_end=np.max(image_pixelspace,axis=0)
-                img_end=img_start+img.shape
+            for index, poly in enumerate(tqdm(polygons, disable=self.no_print)):
+                np_realspace = np.array(poly.oriented_envelope.exterior.xy).T[:-1]
+                np_pixelspace = np.round(self.real_to_pixel(start_index, np_realspace)).astype(int)
+                image_pixelspace = np_pixelspace + offset_x_y
+                img = self.get_img(index)
+                img_start = np.min(image_pixelspace, axis=0)
+                # img_end=np.max(image_pixelspace,axis=0)
+                img_end = img_start + img.shape
 
-                if blending=="hard_cut":
-                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=img
+                if blending == "hard_cut":
+                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] = img
                     if boolean_mask:
-                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+                        bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
-                elif blending=="maximum":
-                    stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
-                    stack[:,:,1]=img
-                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.max(stack,axis=-1)
+                elif blending == "maximum":
+                    stack[:, :, 0] = image[img_start[0]:img_end[0], img_start[1]:img_end[1]]
+                    stack[:, :, 1] = img
+                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] = np.max(stack, axis=-1)
                     if boolean_mask:
-                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+                        bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
-                #elif blending=="minimum":
+                # elif blending=="minimum":
                 #    stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
                 #    stack[:,:,1]=img
                 #    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.min(stack,axis=-1)
                 #    if boolean_mask:
                 #        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
 
-                elif blending=="average":
-                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img
-                    division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=1
+                elif blending == "average":
+                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img
+                    division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += 1
                     if boolean_mask:
-                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+                        bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
-                elif blending=="linear":
-                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*blending_helper
-                    division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=blending_helper
+                elif blending == "linear":
+                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * blending_helper
+                    division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += blending_helper
                     if boolean_mask:
-                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True 
-                elif blending=="quadratic":
-                    blending_helper=np.ones(img.shape)     
-                    imshape=np.array(img.shape)
-                    blending_helper=img_padding_attenuation(blending_helper,imshape,mode="linear")   
-                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*blending_helper
-                    division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=blending_helper 
+                        bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
+                elif blending == "quadratic":
+                    blending_helper = np.ones(img.shape)
+                    imshape = np.array(img.shape)
+                    blending_helper = img_padding_attenuation(blending_helper, imshape, mode="linear")
+                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * blending_helper
+                    division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += blending_helper
                     if boolean_mask:
-                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+                        bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
-                elif blending=="custom_single":
-                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*custom_mask
-                    division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=custom_mask
+                elif blending == "custom_single":
+                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * custom_mask
+                    division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += custom_mask
                     if boolean_mask:
-                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
-
-
+                        bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
             if division_needed:
                 n_rows, n_cols = image.shape
-                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows",disable=self.no_print):
+                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows", disable=self.no_print):
                     row_end = min(row_start + chunk_rows, n_rows)
 
                     # loop over column chunks
                     for col_start in range(0, n_cols, chunk_cols):
                         col_end = min(col_start + chunk_cols, n_cols)
-                        
-                        divider=division_mask[row_start:row_end, col_start:col_end]
-                        divider[divider==0]=1
+
+                        divider = division_mask[row_start:row_end, col_start:col_end]
+                        divider[divider == 0] = 1
                         # slice the 2D chunk
-                        image[row_start:row_end, col_start:col_end] = image[row_start:row_end, col_start:col_end]/divider
-          
+                        image[row_start:row_end, col_start:col_end] = image[row_start:row_end, col_start:col_end] / divider
 
-
-    def map_from_polygons(self,polygons,blending="average",custom_mask=None,boolean_mask=False):
-        start_index=0
-        outer_realspace=self.get_outer_polygon_limits(polygons)
-        pixelouter=self.real_to_pixel(start_index,outer_realspace)
-        pixelouter=np.round(pixelouter).astype(int)
-        offset_x_y=-np.min(pixelouter,axis=0)
-        image_dims=np.max(pixelouter,axis=0)+offset_x_y
-        division_needed=blending not in ("hard_cut","minimum","maximum")
+    def map_from_polygons(self, polygons, blending="average", custom_mask=None, boolean_mask=False):
+        start_index = 0
+        outer_realspace = self.get_outer_polygon_limits(polygons)
+        pixelouter = self.real_to_pixel(start_index, outer_realspace)
+        pixelouter = np.round(pixelouter).astype(int)
+        offset_x_y = -np.min(pixelouter, axis=0)
+        image_dims = np.max(pixelouter, axis=0) + offset_x_y
+        division_needed = blending not in ("hard_cut", "minimum", "maximum")
 
         if division_needed:
-            division_mask=np.zeros(image_dims)#,dtype=np.uint8)
-        image=np.zeros(image_dims)
+            division_mask = np.zeros(image_dims)  # ,dtype=np.uint8)
+        image = np.zeros(image_dims)
         if boolean_mask:
-            bmask=np.zeros(image_dims,dtype=bool)
-   
-        if blending=="minimum":
+            bmask = np.zeros(image_dims, dtype=bool)
+
+        if blending == "minimum":
             image += np.inf
 
-        for index,poly in enumerate(tqdm(polygons,disable=self.no_print)):
-            np_realspace=np.array(poly.oriented_envelope.exterior.xy).T[:-1]
-            np_pixelspace=np.round(self.real_to_pixel(start_index,np_realspace)).astype(int)
-            image_pixelspace=np_pixelspace+offset_x_y
-            img=self.get_img(index)
-            img_start=np.min(image_pixelspace,axis=0)
-            #img_end=np.max(image_pixelspace,axis=0)
-            img_end=img_start+img.shape
+        for index, poly in enumerate(tqdm(polygons, disable=self.no_print)):
+            np_realspace = np.array(poly.oriented_envelope.exterior.xy).T[:-1]
+            np_pixelspace = np.round(self.real_to_pixel(start_index, np_realspace)).astype(int)
+            image_pixelspace = np_pixelspace + offset_x_y
+            img = self.get_img(index)
+            img_start = np.min(image_pixelspace, axis=0)
+            # img_end=np.max(image_pixelspace,axis=0)
+            img_end = img_start + img.shape
 
-            if blending=="hard_cut":
-                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=img
+            if blending == "hard_cut":
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] = img
                 if boolean_mask:
-                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
-            elif blending=="maximum":
-                stack=np.empty([img.shape[0],img.shape[1],2])
-                stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
-                stack[:,:,1]=img
-                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.max(stack,axis=-1)
+                    bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
+            elif blending == "maximum":
+                stack = np.empty([img.shape[0], img.shape[1], 2])
+                stack[:, :, 0] = image[img_start[0]:img_end[0], img_start[1]:img_end[1]]
+                stack[:, :, 1] = img
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] = np.max(stack, axis=-1)
                 if boolean_mask:
-                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
-            elif blending=="minimum":
-                stack=np.empty([img.shape[0],img.shape[1],2])
-                stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
-                stack[:,:,1]=img
-                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.min(stack,axis=-1)
+                    bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
+            elif blending == "minimum":
+                stack = np.empty([img.shape[0], img.shape[1], 2])
+                stack[:, :, 0] = image[img_start[0]:img_end[0], img_start[1]:img_end[1]]
+                stack[:, :, 1] = img
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] = np.min(stack, axis=-1)
                 if boolean_mask:
-                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
-            elif blending=="linear":
-                blending_helper=np.ones(img.shape)     
-                imshape=np.array(img.shape)
-                blending_helper=img_padding_attenuation(blending_helper,imshape//2,mode="linear")   
-                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*blending_helper
-                division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=blending_helper 
+                    bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
+            elif blending == "linear":
+                blending_helper = np.ones(img.shape)
+                imshape = np.array(img.shape)
+                blending_helper = img_padding_attenuation(blending_helper, imshape // 2, mode="linear")
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * blending_helper
+                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += blending_helper
                 if boolean_mask:
-                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
-            elif blending=="quadratic":
-                blending_helper=np.ones(img.shape)     
-                imshape=np.array(img.shape)
-                blending_helper=img_padding_attenuation(blending_helper,imshape,mode="linear")   
-                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*blending_helper
-                division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=blending_helper 
+                    bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
+            elif blending == "quadratic":
+                blending_helper = np.ones(img.shape)
+                imshape = np.array(img.shape)
+                blending_helper = img_padding_attenuation(blending_helper, imshape, mode="linear")
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * blending_helper
+                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += blending_helper
                 if boolean_mask:
-                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
-            elif blending=="average":
-                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img
-                division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=1
+                    bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
+            elif blending == "average":
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img
+                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += 1
                 if boolean_mask:
-                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+                    bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
-            elif blending=="custom_single":
-                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*custom_mask
-                division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=custom_mask
+            elif blending == "custom_single":
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * custom_mask
+                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += custom_mask
                 if boolean_mask:
-                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
-            elif blending=="custom_multi":  
-                image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*custom_mask[index]
-                division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=custom_mask[index]
+                    bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
+            elif blending == "custom_multi":
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * custom_mask[index]
+                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += custom_mask[index]
                 if boolean_mask:
-                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+                    bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
-
-        if blending=="minimum":
-            image[image==np.inf]=0
+        if blending == "minimum":
+            image[image == np.inf] = 0
 
         if division_needed:
-            division_mask[division_mask==0]=1
-            image[:,:]/=division_mask
+            division_mask[division_mask == 0] = 1
+            image[:, :] /= division_mask
 
-        if boolean_mask:        
-            return image,bmask
+        if boolean_mask:
+            return image, bmask
         else:
             return image
 
-    def z_transform_images(self,offset_positive=True,dset_name="data",new_dset_name=None):
-        new_img_list=[]
-        most_negative=0
-        if self.mode=="memory":
-            for img in tqdm(self.img_list,disable=self.no_print,desc="z-transform"):
-                mean=np.mean(img)
-                std=np.std(img)
-                z_trans=(img-mean)/std
+    def z_transform_images(self, offset_positive=True, dset_name="data", new_dset_name=None):
+        new_img_list = []
+        most_negative = 0
+        if self.mode == "memory":
+            for img in tqdm(self.img_list, disable=self.no_print, desc="z-transform"):
+                mean = np.mean(img)
+                std = np.std(img)
+                z_trans = (img - mean) / std
                 new_img_list.append(z_trans)
-                most_negative=min(most_negative,np.min(z_trans))
- 
+                most_negative = min(most_negative, np.min(z_trans))
+
             if offset_positive:
-                for i in tqdm(range(len(self.img_list)),disable=self.no_print,desc="positive offset"):
+                for i in tqdm(range(len(self.img_list)), disable=self.no_print, desc="positive offset"):
                     new_img_list[i] -= most_negative
 
         else:
             if self.modifiable_file is None:
                 print(self.warning_mod_is_none)
                 return 0
-            
+
             with h5py.File(self.modifiable_file, "r+") as f:
-                newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
+                newshape = [len(self.img_list), self.dimensions[0][0], self.dimensions[0][1]]
                 if new_dset_name is None:
-                    new_dset_name=dset_name
+                    new_dset_name = dset_name
                 else:
-                    f.create_dataset(new_dset_name, newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )
+                    f.create_dataset(new_dset_name, newshape, dtype="f4", chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
-                for i in tqdm(range(len(self.img_list)),disable=self.no_print,desc="z-transform"):
-                    img=f[dset_name][i,:,:]
-                    minimum=np.min(img)
-                    mean=np.mean(img)
-                    std=np.std(img)
-                    f[new_dset_name][i,:,:]=(img-mean)/std
-                    most_negative=min((minimum-mean)/std,most_negative)
-                    
+                for i in tqdm(range(len(self.img_list)), disable=self.no_print, desc="z-transform"):
+                    img = f[dset_name][i, :, :]
+                    minimum = np.min(img)
+                    mean = np.mean(img)
+                    std = np.std(img)
+                    f[new_dset_name][i, :, :] = (img - mean) / std
+                    most_negative = min((minimum - mean) / std, most_negative)
+
                 if offset_positive:
-                    for i in tqdm(range(len(self.img_list)),disable=self.no_print,desc="positive offset"):
-                        arr=f[new_dset_name][i,:,:]
-                        arr-=most_negative
-                        f[new_dset_name][i,:,:]=arr-most_negative
-
-
+                    for i in tqdm(range(len(self.img_list)), disable=self.no_print, desc="positive offset"):
+                        arr = f[new_dset_name][i, :, :]
+                        arr -= most_negative
+                        f[new_dset_name][i, :, :] = arr - most_negative
