@@ -12,6 +12,40 @@ from scipy.spatial.distance import cdist
 from scipy.integrate import quad
 
 #%%
+
+#            if self.modifiable_file is None:
+#                print("warning: deprecated")
+#                h5file="temp.h5"
+#                #self.modifiable_file=h5file
+#                with h5py.File(h5file, "a") as f:
+#                    if "z_transform_name_list" in f:
+#                        del f["z_transform_name_list"]    
+#                    f["z_transform_name_list"]=self.img_list
+#                    maxnum=len(self.img_list)
+#                    zfillnum=int(np.ceil(np.log10(maxnum)))
+#                    for i in range(len(self.img_list)):
+#                        num=str(i).zfill(zfillnum)
+#                        img=self.get_img(i)
+#                        minimum=np.min(img)
+#                        mean=np.mean(img)
+#                        std=np.std(img)
+#                        if "z_transform/"+num in f:
+#                            del f["z_transform/"+num]
+#                        f["z_transform/"+num]=(img-mean)/std
+#                        most_negative=min((minimum-mean)/std,most_negative)
+#                        new_img_list.append("z_transform/"+num)
+#                    
+#                    if offset_positive:
+#                        for i in range(len(self.img_list)):
+#                            num=str(i).zfill(zfillnum)
+#                            arr=f["z_transform/"+num][:]
+#                            arr-=most_negative
+#                            f["z_transform/"+num][:]=arr-most_negative
+#
+#                return new_img_list
+
+
+#%%
 def split_function_into_equal_area_parts(func,number_of_parts,prec=10**-6,limits=[-np.inf,np.inf],
                                             printing=False,max_iterations=1000):
     """calculate the split positions to divide a function into equal area parts, best suited for smooth functions

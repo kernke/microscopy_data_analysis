@@ -23,7 +23,8 @@ def h5_to_pyramidal_tiff(
     dataset_key,
     out_path,
     compression="lzw",
-    max_levels=4
+    max_levels=4,
+    dtype=None
 ):
     """
     Convert a chunked HDF5 dataset to a pyramidal BigTIFF using tifffile.
@@ -33,7 +34,8 @@ def h5_to_pyramidal_tiff(
     with h5py.File(h5_path, "r") as f:
         dset = f[dataset_key]
         shape = dset.shape
-        dtype = dset.dtype
+        if dtype is None:
+            dtype = dset.dtype
 
         if dset.chunks is None:
             raise ValueError("Dataset must be chunked")
@@ -103,7 +105,9 @@ def h5_to_tiff(
     h5_path,
     dataset_key,
     out_path,
-    compression="lzw"
+    compression="lzw",
+    big_tiff=True,
+    dtype=None
 ):
     """Convert a chunked HDF5 dataset to a BigTIFF (no pyramid)."""
 
@@ -111,7 +115,9 @@ def h5_to_tiff(
     with h5py.File(h5_path, "r") as f:
         dset = f[dataset_key]
         shape = dset.shape
-        dtype = dset.dtype
+        if dtype is None:
+            dtype = dset.dtype
+
 
         if dset.chunks is None:
             raise ValueError("Dataset must be chunked")
@@ -125,7 +131,7 @@ def h5_to_tiff(
                 y1 = min(y0 + tile_h, H)
                 for x0 in range(0, W, tile_w):
                     x1 = min(x0 + tile_w, W)
-                    yield dset[y0:y1, x0:x1]
+                    yield dset[y0:y1, x0:x1].astype(dtype)
 
         # --- Write BigTIFF ---
         tifffile.imwrite(
@@ -133,7 +139,7 @@ def h5_to_tiff(
             data=tile_generator(),
             shape=shape,
             dtype=dtype,
-            bigtiff=True,
+            bigtiff=big_tiff,
             tile=(tile_h, tile_w),
             photometric="rgb" if len(shape) == 3 else "minisblack",
             compression=compression

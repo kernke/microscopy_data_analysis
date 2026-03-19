@@ -16,61 +16,105 @@ from .image_processing import img_to_uint8
 from .image_aligning import phase_correlation,max_from_2d,img_padding_attenuation
 
 
-class stitching_object:
-    def __init__(self,mode="memory",no_print=False):
-        """mode can either be 'memory' or 'storage'
-        "memory" is the default, assuming the image series being loaded into the RAM
-        "storage" is suitable for larger file sizes, when not all images simultaneously fit into the RAM
-        (storage supports images as .tif, .png ... or as multiple files in .h5 or as datacube in .h5)"""
+class stack_and_stitching_object:
+    def __init__(self,mode="storage",no_print=False):
+        """
+        object to handle large stacks (potentially larger than size of RAM) 
+        for background subtraction, shift correction or stitching 
+        
+        Args:
+            mode (string): 'storage' only single images are loaded into RAM  simultaneously 
+            ('storage' supports images as .tif, .png ... or as multiple files in .h5 or as datacube in .h5)
+            The mode 'memory' can be used, for small image series, that are already being loaded fully into RAM
+            Defaults to 'storage' 
+            
+            no_print (bool): set to 'True' for silent execution
+            Defaults to 'False'
+        """
         self.mode=mode
         self.no_print=no_print
+        self.images_from="original"
         self.directory=None
+        self.modifiable_file=None
+        self.warning_mod_is_none="please first provide a modifiable dataset by using 'create_h5cube_duplicate_for_modifying'"
         if not no_print:
             if mode == "storage":
                 print("For .h5 provide the path to the h5-file (that serves as h5-directory) via the 'set_directory_path' method")
-                print("For .tif, .png, ... image files either provide the folder via 'set_directory_path' or a list of filepaths via 'set_img_list'") 
+                print("For .tif, .png, ... image files  either provide  a list of relative or absolute filepaths via 'set_img_list'") 
+                print("or provide the folder containing only the contributing images via 'set_directory_path'")
             if mode == "memory":
                 print("please provide the images, as a list of images via 'set_img_list'")
                 
     def info(self):
         print("General conditions: ")
-        print("All images of the series are assumed, to have no rotation and same pixel size.")
-        print("For background subtraction, additionally same dimensions (for example: 512x256,512x256,...) are required.")
+        print("All images of the series are assumed, to have no rotation and same pixel size and same dimensions.")
+        #print("Some functions additionally require same dimensions for all images (for example, all image shapes: 512x256).")
             
     def set_directory_path(self,path_string):
+        """
+        set the path to either an h5-file or a folder containing the images
+
+        Args:
+            path_string (string): looking like, for example: 'folderA/data.h5' or 'folderB'
+        """
         self.directory=path_string
         if path_string[-3:]==".h5":
             self.h5_mode=True
             print("please provide the h5 image file paths as a list via 'set_img_list' or use 'imgs_from_datacube'")
         else:
-            print("please provide the image file-paths/names as a list via 'set_img_list'")
+            rel_img_list=sorted(os.listdir(path_string))
+            self.img_list=[]
+            for i in range(len(rel_img_list)):
+                self.img_list.append(path_string+"/"+rel_img_list[i])
             self.h5_mode=False
 
     def imgs_from_datacube(self,dataset_name):
-        """images are assumed to be represented by the first index (for example: 16 x 1024 x 1024)"""
+        """
+        images are assumed to be represented by the first index (for example: 16 x 1024 x 1024)
+        
+        Args:
+            dataset_name (string): name (h5 internal path) of the dataset
+            could look like for example: 'sampleA/data' or just 'images'
+        """
         self.mode="h5_datacube"
         self.dataset_name=dataset_name
         with h5py.File(self.directory,'r') as h5:
             datashape=h5[dataset_name].shape
             self.img_list=np.arange(datashape[0])
 
-    def change_img_list(self,mode="memory",no_print=False):
-        """mode can either be 'memory' or 'storage'
-        "memory" is the default, assuming the image series being loaded into the RAM
-        "storage" is suitable for larger file sizes, when not all images simultaneously fit into the RAM
-        (storage supports images as .tif, .png ... or as multiple files in .h5 or as datacube in .h5)"""      
+    def change_source_imgs(self,mode="memory",no_print=False):
+        """
+        change source images of the stack 
+        
+        Args:
+            mode (string): 'storage' only single images are loaded into RAM  simultaneously 
+            ('storage' supports images as .tif, .png ... or as multiple files in .h5 or as datacube in .h5)
+            The mode 'memory' can be used, for small image series, that are already being loaded fully into RAM
+            Defaults to 'storage' 
+            
+            no_print (bool): set to 'True' for silent execution
+            Defaults to 'False'
+        """
         self.mode=mode
         self.directory=None
         if not no_print:
             if mode == "storage":
                 print("For .h5 provide the path to the h5-file (that serves as h5-directory) via the 'set_directory_path' method")
-                print("For .tif, .png, ... image files either provide the folder via 'set_directory_path' or a list of filepaths via 'set_img_list'") 
+                print("For .tif, .png, ... image files  either provide  a list of relative or absolute filepaths via 'set_img_list'") 
+                print("or provide the folder containing only the contributing images via 'set_directory_path'")
             if mode == "memory":
                 print("please provide the images, as a list of images via 'set_img_list'")
 
 
     def set_img_list(self,img_list):
+        """
+        set the image list
 
+        Args:
+            img_list (list of strings or list of arrays): 
+            corresponding to either paths within the file-system or the h5-hierachy 
+            or in case of mode='memory' a list containing the actual images 
+        """
         if self.directory is None:
             self.h5_mode=False
             self.img_list=img_list
@@ -79,80 +123,366 @@ class stitching_object:
 
     
     def get_img(self,index):
-        if self.mode=="memory":
-            img = self.img_list[index]
-        elif self.mode=="storage":
-            if self.h5_mode:
+        """
+        load the requested image into RAM and return it
+
+        Args:
+            index (int): index of the image in 'img_list'
+
+        Returns:
+            img (array): requested image
+        """
+        if self.images_from=="original":
+            if self.mode=="memory":
+                img = self.img_list[index]
+            elif self.mode=="storage":
+                if self.h5_mode:
+                    with h5py.File(self.directory,'r') as h5:
+                        img=h5[self.img_list[index]][()]
+                else:
+                    img=cv2.imread(self.img_list[index],0)
+            elif self.mode=="h5_datacube":
                 with h5py.File(self.directory,'r') as h5:
-                    img=h5[self.img_list[index]][()]
-            else:
-                img=cv2.imread(self.img_list[index],0)
-        elif self.mode=="h5_datacube":
-            with h5py.File(self.directory,'r') as h5:
-                img=h5[self.dataset_name][index,:,:]
+                    img=h5[self.dataset_name][index,:,:]
+        else:
+            with h5py.File(self.modifiable_file,'r') as h5:
+                img=h5[self.images_from][index,:,:]
         return img
 
     def set_positions(self,positions):
-        """array or list of tuples, containing x,y""" 
+        """ 
+        set the estimated x and y positions of the images for stitching
+        
+        Args:
+            postions (array_like or list of tuples): postions containing x,y
+            either as array with shape (N,2) or list of tuples
+        """ 
         self.positions=positions
 
     def set_units_per_pixel(self,units_per_pixel):
+        """
+        set the units per pixel for example (0.3 micrometer per pixel), 
+        corresponding to positions ('set_positions')
+
+        Args:
+            units_per_pixel (float): scalar value
+        """
         self.units_per_pixel=units_per_pixel
 
-    def sniff_dimensions(self,dimensions=None):
-        img=self.get_img(0)
-        #self.dtype=img.dtype
-        if dimensions is not None:
-            self.dimensions=dimensions
+    def sniff_dimensions(self):#,dimensions=None,no_print=False):
+        """
+        determine image dimensions from the first image
+        """
+        #if dimensions is not None:
+        #    self.dimensions=dimensions
+        #else:
+        self.dimensions=np.zeros([len(self.img_list),2],dtype=int)
+        if self.h5_mode:
+            img=self.get_img(0)
+            imgshape=img.shape
         else:
-            self.dimensions=np.zeros([len(self.img_list),2],dtype=int)
-            
-            for i in range(len(self.img_list)):
-                if self.h5_mode:
-                    img=self.get_img(i)
-                    self.dimensions[i]=img.shape
-                else:
-                    self.dimensions[i]=imagesize.get(self.img_list[i])        
+            imgshape=imagesize.get(self.img_list[0])        
+        for i in range(len(self.img_list)):    
+            self.dimensions[i]=imgshape            
+
+            # maybe still usefull, when different dimensions need to be considered
+            #for i in tqdm(range(len(self.img_list)),disable=no_print):
+            #    if self.h5_mode:
+            #        img=self.get_img(i)
+            #        self.dimensions[i]=img.shape
+            #    else:
+            #        self.dimensions[i]=imagesize.get(self.img_list[i])        
     
-    def create_temporary_data(self,filename="temp.h5"):
-        self.temp_file=filename
-        img=self.get_img(0)
-        self.dtype=img.dtype
+    def use_images_from(self,source="original"):
+        """
+        determine where 'get_img' takes an image from
+
+        Args:
+            source (string): source either corresponds to 'original' 
+            or to the dataset name (for example: 'data') of the modifiable h5-file
+        """
+        self.images_from=source
+
+    def set_print_mode(self,no_print=False):
+        """
+        prevent or enable print output
+
+        Args:
+            no_print (bool): set to 'True' for silent execution 
+            Defaults to 'False'
+        """
+        self.no_print=no_print
+
+    def set_img(self,index,img,filename="temp.h5",dset_name="data"):
+        """
+        exchange the image with given index in the modifiable dataset
+
+        Args:
+            index (int): index corresponding to the image be changed
+
+            img (array): new image that exchanges the old one
+
+            filename (string, optional): name of the h5-file
+
+            dsetname (string, optional): name of/path to the dataset inside the h5-file
+        """
+        if self.modifiable_file is None:
+            print(self.warning_mod_is_none)
+            return 0
+        with h5py.File(self.modifiable_file, "r+") as f:
+            f[dset_name][index,:,:]=img
+
+
+    def create_h5cube_duplicate_for_modifying(self,filename="temp.h5",dset_name="data",force_dtype=False):
+        """
+        create an h5 file containing the data as 3D-dataset
+
+        Args:
+            filename (string): name of the h5-file
+
+            dset_name (string): name or internal path to the dataset
+
+            force_dtype (bool): set to 'True' to not change the datatype,
+            otherwise Float32 is chosen for best compatibility with functions acting on the data
+            (datatype of a created dataset can not be changed -> another duplicate dataset necessary for change)
+            Defaults to 'False'
+        """
+        if not self.no_print:
+            print("With 'use_images_from' the output of 'get_img' can be set to correspond to original or modified images")
+        self.modifiable_file=filename
+        if force_dtype:
+            img=self.get_img(0)
+            self.dtype=img.dtype
+        else:
+            self.dtype="f4"
         if len(np.unique(self.dimensions))>2:
+            #with h5py.File(filename, "w") as f:
+            #    for i in tqdm(range(len(self.img_list)),disable=no_print):
+            #        img=self.get_img(i)
+            #        f["data"][str(i)]=img
             print("all images must have equal dimensions")
             return 0
         else:
             newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
         
         with h5py.File(filename, "w") as f:
-            f.create_dataset("data", newshape,self.dtype,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )#dtype="f4")
-            for i in range(len(self.img_list)):
+            f.create_dataset(dset_name, newshape,self.dtype,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )#dtype="f4")
+            for i in tqdm(range(len(self.img_list)),disable=self.no_print):
                 img=self.get_img(i)
-                f["data"][i,:,:]=img
+                f[dset_name][i,:,:]=img
 
-    def subtract_dark_field(self,dark_field):
-        with h5py.File(self.temp_file, "r+") as f:
+    def subtract_dark_field(self,dark_field,dset_name="data",new_dset_name=None):
+        if self.modifiable_file is None:
+            print(self.warning_mod_is_none)
+            return 0
+        with h5py.File(self.modifiable_file, "r+") as f:
+            if new_dset_name is None:
+                new_dset_name=dset_name
+            else:
+                newshape=f[dset_name].shape
+                f.create_dataset(new_dset_name, newshape,self.dtype,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )
+            
             for i in range(len(self.img_list)):
-                f["data"][i,:,:]=np.maximum(f["data"][i,:,:]-dark_field,0)
+                f[new_dset_name][i,:,:]=np.maximum(f[dset_name][i,:,:]-dark_field,0)
+
+    def stats(self,histogram=True,histo_levels=100,dset_name=None,mask=None):
+        stack_max=-np.inf
+        stack_min=np.inf
+        easy_iterate = dset_name is None
+        if not easy_iterate:
+            if self.modifiable_file is None:
+                print(self.warning_mod_is_none)
+                return 0
+            with h5py.File(self.modifiable_file, "r") as f:
+                if len(f[dset_name].shape)==3:
+                    easy_iterate=True            
+
+        if easy_iterate:
+            for i in tqdm(range(len(self.img_list)),disable=self.no_print,desc="min/max"):
+                img=self.get_img(i)
+                stack_max=max(np.max(img),stack_max)
+                stack_min=min(np.min(img),stack_min)
+            
+            if histogram:
+                bin_edges=np.linspace(stack_min,stack_max,histo_levels+1)
+                cumulative=np.zeros(histo_levels)
+                for i in tqdm(range(len(self.img_list)),disable=self.no_print,desc="histo"):
+                    hist, new_bins=np.histogram(np.ravel(self.get_img(i)),bins=bin_edges)
+                    cumulative+=hist
+                return stack_min,stack_max,bin_edges,hist
+            else:
+                return stack_min,stack_max
+        else:
+            with h5py.File(self.modifiable_file, "r") as f:
+                chunk_rows, chunk_cols = f[dset_name].chunks
+                n_rows, n_cols = f[dset_name].shape
+
+                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows",disable=self.no_print):
+                    row_end = min(row_start + chunk_rows, n_rows)
+
+                    # loop over column chunks
+                    for col_start in range(0, n_cols, chunk_cols):
+                        col_end = min(col_start + chunk_cols, n_cols)
+                        
+                        # slice the 2D chunk
+                        tile=f[dset_name][row_start:row_end, col_start:col_end]
+                        if mask:
+                            tile=tile[f[mask][row_start:row_end, col_start:col_end]]
+                        stack_max=max(np.max(tile),stack_max)
+                        stack_min=min(np.min(tile),stack_min)
+
+                if histogram:
+                    bin_edges=np.linspace(stack_min,stack_max,histo_levels+1)
+                    cumulative=np.zeros(histo_levels)
+                    for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows",disable=self.no_print):
+                        row_end = min(row_start + chunk_rows, n_rows)
+
+                        # loop over column chunks
+                        for col_start in range(0, n_cols, chunk_cols):
+                            col_end = min(col_start + chunk_cols, n_cols)
+
+                            # slice the 2D chunk
+                            tile=f[dset_name][row_start:row_end, col_start:col_end]
+                            if mask:
+                                tile=tile[f[mask][row_start:row_end, col_start:col_end]]
+                                hist, new_bins=np.histogram(tile,bins=bin_edges)
+                            else:
+                                hist, new_bins=np.histogram(np.ravel(tile),bins=bin_edges)
+                            cumulative+=hist
+
+                    return stack_min,stack_max,bin_edges,hist
+                else:
+                    return stack_min,stack_max
+
+
+    def clip(self,vmin,vmax,dset_name="data",new_dset_name=None):
+        if self.modifiable_file is None:
+            print(self.warning_mod_is_none)
+            return 0
+
+        newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
+        with h5py.File(self.modifiable_file, "r+") as f:
+            if len(f[dset_name].shape)==3:
+                if new_dset_name is None:
+                    new_dset_name=dset_name
+                else:
+                    f.create_dataset(new_dset_name, newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )
+
+                #f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+                for i in tqdm(range(len(self.img_list)),disable=self.no_print):
+                    f[new_dset_name][i,:,:]=np.clip(f[dset_name][i,:,:],vmin,vmax)#clipped
+
+            else:
                 
-    def flat_field_generation(self,percentile_steps=19,subdiv=4):
-        #needs temp data
-        #img_series=np.array(img_list)
-        #print(percentile_steps)
+                #image=f[dset_name]
+                chunk_rows, chunk_cols = f[dset_name].chunks
+                n_rows, n_cols = f[dset_name].shape
+                if new_dset_name is None:
+                    new_dset_name=dset_name
+                else:
+                    f.create_dataset(
+                                new_dset_name,
+                                shape=(n_rows,n_cols),
+                                dtype="float32",
+                                chunks=(chunk_rows, chunk_cols),
+                                #fillvalue=0   
+                            )
+                    
+                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows",disable=self.no_print):
+                    row_end = min(row_start + chunk_rows, n_rows)
+
+                    # loop over column chunks
+                    for col_start in range(0, n_cols, chunk_cols):
+                        col_end = min(col_start + chunk_cols, n_cols)
+                        
+                        # slice the 2D chunk
+                        f[new_dset_name][row_start:row_end, col_start:col_end] = np.clip(f[dset_name][row_start:row_end, col_start:col_end],vmin,vmax)
+
+
+        
+    def normalize(self,old_min,old_max,new_min,new_max,dset_name="data",new_dset_name=None):
+        if self.modifiable_file is None:
+            print(self.warning_mod_is_none)
+            return 0
+
+        old_delta=old_max-old_min
+        new_delta=new_max-new_min
+        factor=new_delta/old_delta
+        newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
+        with h5py.File(self.modifiable_file, "r+") as f:
+            if len(f[dset_name].shape)==3:
+                if new_dset_name is None:
+                    new_dset_name=dset_name
+                else:
+                    f.create_dataset(new_dset_name, newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )
+
+            
+                #f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+                for i in tqdm(range(len(self.img_list)),disable=self.no_print):
+                    f[new_dset_name][i,:,:]=(f[dset_name][i,:,:]-old_min)*factor +new_min
+            else:
+                
+                #image=f[dset_name]
+                chunk_rows, chunk_cols = f[dset_name].chunks
+                n_rows, n_cols = f[dset_name].shape
+                if new_dset_name is None:
+                    new_dset_name=dset_name
+                else:
+                    f.create_dataset(
+                                new_dset_name,
+                                shape=(n_rows,n_cols),
+                                dtype="float32",
+                                chunks=(chunk_rows, chunk_cols),
+                                #fillvalue=0   
+                            )
+                    
+                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows",disable=self.no_print):
+                    row_end = min(row_start + chunk_rows, n_rows)
+
+                    # loop over column chunks
+                    for col_start in range(0, n_cols, chunk_cols):
+                        col_end = min(col_start + chunk_cols, n_cols)
+                        
+                        # slice the 2D chunk
+                        f[new_dset_name][row_start:row_end, col_start:col_end] = (f[dset_name][row_start:row_end, col_start:col_end]-old_min)*factor +new_min
+          
+
+
+
+    def flat_field_generation(self,percentile_steps=19,subdiv=4,dset_name="data"):
+        """
+        calculate a local flat field background by averaging percentiles
+
+        Args:
+            percentile_steps (int > 1):
+            
+            subdiv (int > 0):
+
+            dset_name (string):
+        """
+        if self.modifiable_file is None:
+            print(self.warning_mod_is_none)
+            return 0
+
         step=100/(percentile_steps+1)
         steps=np.linspace(step,100-step,percentile_steps)
         dims=self.dimensions[0]
         flats=np.zeros([percentile_steps,dims[0],dims[1]])
         subdiv_steps=int(dims[0]//4)
-        with h5py.File(self.temp_file, "r") as f:
-            start_index=0
-            for i in range(1,subdiv):
+
+        if self.mode=="memory":
+            flats=np.percentile(np.array(self.img_list),steps,axis=0)
+        else:
+
+            with h5py.File(self.modifiable_file, "r") as f:
+                start_index=0
+                for i in range(1,subdiv):
+                    if not self.no_print:
+                        print(str(i)+" out of "+str(subdiv)+" iterations")
+                    flats[:,start_index:i*subdiv_steps,:]=np.percentile(f[dset_name][:,start_index:i*subdiv_steps,:],steps,axis=0)                
                 if not self.no_print:
-                    print(str(i)+" out of "+str(subdiv)+" iterations")
-                flats[:,start_index:i*subdiv_steps,:]=np.percentile(f["data"][:,start_index:i*subdiv_steps,:],steps,axis=0)                
-            if not self.no_print:
-                print(str(subdiv)+" out of "+str(subdiv)+" iterations")
-            flats[:,(subdiv-1)*subdiv_steps:,:]=np.percentile(f["data"][:,(subdiv-1)*subdiv_steps:,:],steps,axis=0)
+                    print(str(subdiv)+" out of "+str(subdiv)+" iterations")
+                flats[:,(subdiv-1)*subdiv_steps:,:]=np.percentile(f[dset_name][:,(subdiv-1)*subdiv_steps:,:],steps,axis=0)
         #flats=np.percentile(img_series,steps,axis=0)
         self.flat_field=np.mean(flats,axis=0)
         self.flats=flats
@@ -208,13 +538,19 @@ class stitching_object:
             result[self.dust_dict[i][0]]=ring_values
         return result
     
-    def dust_removal_all(self):
+    def dust_removal_all(self,):
+        if self.modifiable_file is None:
+            print(self.warning_mod_is_none)
+            return 0
         self.flat_field=self.dust_removal(self.flat_field)
-        with h5py.File(self.temp_file, "r+") as f:
+        with h5py.File(self.modifiable_file, "r+") as f:
             for i in range(len(self.img_list)):
                 f["data"][i,:,:]=self.dust_removal(f["data"][i,:,:])
 
-    def flat_field_correction(self,flat_field=None):
+    def flat_field_correction(self,flat_field=None,dset_name="data",new_dset_name=None):
+        if self.modifiable_file is None:
+            print(self.warning_mod_is_none)
+            return 0
         if flat_field is None:
             flat_field=self.flat_field
         if np.min(flat_field)<=0:
@@ -223,15 +559,21 @@ class stitching_object:
             flat_field[flat_field==np.inf]=np.min(flat_field)
         
         newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
-        with h5py.File(self.temp_file, "r+") as f:
-            f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
-            for i in range(len(self.img_list)):
-                f["data_corrected"][i,:,:]=f["data"][i,:,:]/flat_field  
+        with h5py.File(self.modifiable_file, "r+") as f:
+            if new_dset_name is None:
+                new_dset_name=dset_name
+            else:
+                f.create_dataset(new_dset_name, newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )
+
+            #f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+            for i in tqdm(range(len(self.img_list)),disable=self.no_print):
+                f[new_dset_name][i,:,:]=f[dset_name][i,:,:]/flat_field  
 
     def convert_to_uint16(self,real_zero=False):#,newdtype=np.uint16):
+
         img_maxs=np.zeros(len(self.img_list))
         img_mins=np.zeros(len(self.img_list))        
-        with h5py.File(self.temp_file, "r") as f:
+        with h5py.File(self.modifiable_file, "r") as f:
             for i in range(len(self.img_list)):
                 corr=f["data_corrected"][i,:,:]  
                 img_maxs[i]=np.max(corr)
@@ -241,7 +583,7 @@ class stitching_object:
             img_max=np.max(img_maxs)
             div=img_max-img_min
                 
-            newname=self.temp_file[:-3]+"_very_temporary.h5"
+            newname=self.modifiable_file[:-3]+"_very_temporary.h5"
             newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
             with h5py.File(newname, "w") as tf:
                 tf.create_dataset("data", newshape,np.uint16,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
@@ -249,15 +591,15 @@ class stitching_object:
                     corr=((f["data_corrected"][i,:,:]-img_min)/div) * 65535  
                     tf["data"][i,:,:]=corr.astype(np.uint16)
             if real_zero:
-                newname=self.temp_file[:-3]+"_real_zero.h5"
+                newname=self.modifiable_file[:-3]+"_real_zero.h5"
                 with h5py.File(newname, "w") as tf:
                     tf.create_dataset("data", newshape,np.uint16,chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
                     for i in range(len(self.img_list)):
                         corr=(f["data_corrected"][i,:,:]/img_max) * 65535  
                         tf["data"][i,:,:]=corr.astype(np.uint16)
 
-        os.remove(self.temp_file)
-        os.rename(self.temp_file[:-3]+"_very_temporary.h5",self.temp_file)
+        os.remove(self.modifiable_file)
+        os.rename(self.modifiable_file[:-3]+"_very_temporary.h5",self.modifiable_file)
 
 
     def make_polygons(self,units_per_pixel=None,positions=None,dimensions=None,orientation=0):
@@ -494,15 +836,35 @@ class stitching_object:
             real_points[i]+=anchor_point        
         return real_points
 
+
+    def ordered_edge_sequence(self):
+        tuple_sequence=[]
+        tuple_array=np.array(self.G.edges())
+        booleans=np.ones(len(tuple_array),dtype=bool)
+        for i in range(len(self.img_list)):
+            for  j in range(len(tuple_array)):
+                if booleans[j]:
+                    if tuple_array[j][0]==i:
+                        tuple_sequence.append(tuple_array[j])
+                        booleans[j]=False
+                    elif tuple_array[j][1]==i:
+                        tuple_sequence.append(tuple_array[j][::-1])
+                        booleans[j]=False
+        self.edge_sequence=tuple_sequence
+
     def check_pairs(self,max_transl_pix=None,sigma=1,check_data=False):
         
         shifts=[]
         if check_data:        
             croplist1=[]
             croplist2=[]
-        pairs=np.array(self.G.edges())
         
-        for pair in tqdm(pairs):
+        #pairs=np.array(self.G.edges())
+        self.ordered_edge_sequence()
+        pairs=self.edge_sequence
+        old_index1=-1
+        
+        for pair in tqdm(pairs,disable=self.no_print):
 
             index1=pair[0]
             index2=pair[1]
@@ -523,8 +885,10 @@ class stitching_object:
             im2=self.get_img(index2)
             im2_crop=self.crop_from_points(im2,im2_overlap_coord)
         
+            if old_index1!=index1:
+                im1=self.get_img(index1)
+                old_index1=index1
 
-            im1=self.get_img(index1)
             im1_crop=self.crop_from_points(im1,im1_overlap_coord)
             
             if check_data:
@@ -603,7 +967,13 @@ class stitching_object:
         return moved_polygons
 
 
-    def map_from_polygons_h5(self,polygons,h5file="temp.h5",blending="average",custom_mask=None):
+    def map_from_polygons_h5(self,polygons,h5file=None,blending="average",custom_mask=None,boolean_mask=False):
+        
+        if h5file is None and self.modifiable_file is None:
+            print(self.warning_mod_is_none)
+            return 0
+        if h5file is None:
+            h5file=self.modifiable_file
 
         start_index=0
         outer_realspace=self.get_outer_polygon_limits(polygons)
@@ -611,17 +981,30 @@ class stitching_object:
         pixelouter=np.round(pixelouter).astype(int)
         offset_x_y=-np.min(pixelouter,axis=0)
         image_dims=np.max(pixelouter,axis=0)+offset_x_y
+        division_needed=blending not in ("hard_cut","minimum","maximum")
 
         with h5py.File(h5file, "a") as f:
-            division_mask = f.create_dataset(
-                        "mask",
-                        shape=image_dims,
-                        dtype="float32",
-                        chunks=(512, 512),
-                        fillvalue=0   
-                    )
+
+            if division_needed:
+                division_mask = f.create_dataset(
+                            "division_mask",
+                            shape=image_dims,
+                            dtype="float32",
+                            chunks=(512, 512),
+                            fillvalue=0   
+                        )
+                
+            if boolean_mask:
+                bmask = f.create_dataset(
+                            "boolean_mask",
+                            shape=image_dims,
+                            dtype="bool",
+                            chunks=(512, 512),
+                            fillvalue=False   
+                        )
+
             image = f.create_dataset(
-                        "data",
+                        "map",
                         shape=image_dims,
                         dtype="float32",
                         chunks=(512, 512),
@@ -630,9 +1013,17 @@ class stitching_object:
 
             chunk_rows, chunk_cols = image.chunks
 
+            imshape=self.dimensions[0]
+            if blending in ("minimum","maximum"):
+                stack=np.empty([imshape[0],imshape[1],2])
+            elif blending =="linear":
+                blending_helper=np.ones(imshape)     
+                blending_helper=img_padding_attenuation(blending_helper,imshape//2,mode="linear")   
+            elif blending=="quadratic":
+                blending_helper=np.ones(imshape)     
+                blending_helper=img_padding_attenuation(blending_helper,imshape,mode="linear")   
 
-
-            for index,poly in enumerate(polygons):
+            for index,poly in enumerate(tqdm(polygons,disable=self.no_print)):
                 np_realspace=np.array(poly.oriented_envelope.exterior.xy).T[:-1]
                 np_pixelspace=np.round(self.real_to_pixel(start_index,np_realspace)).astype(int)
                 image_pixelspace=np_pixelspace+offset_x_y
@@ -641,43 +1032,88 @@ class stitching_object:
                 #img_end=np.max(image_pixelspace,axis=0)
                 img_end=img_start+img.shape
 
-                if blending=="average":
+                if blending=="hard_cut":
+                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=img
+                    if boolean_mask:
+                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+
+                elif blending=="maximum":
+                    stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
+                    stack[:,:,1]=img
+                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.max(stack,axis=-1)
+                    if boolean_mask:
+                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+
+                #elif blending=="minimum":
+                #    stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
+                #    stack[:,:,1]=img
+                #    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.min(stack,axis=-1)
+                #    if boolean_mask:
+                #        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+
+                elif blending=="average":
                     image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img
                     division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=1
+                    if boolean_mask:
+                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+
+                elif blending=="linear":
+                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*blending_helper
+                    division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=blending_helper
+                    if boolean_mask:
+                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True 
+                elif blending=="quadratic":
+                    blending_helper=np.ones(img.shape)     
+                    imshape=np.array(img.shape)
+                    blending_helper=img_padding_attenuation(blending_helper,imshape,mode="linear")   
+                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*blending_helper
+                    division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=blending_helper 
+                    if boolean_mask:
+                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+
+                elif blending=="custom_single":
+                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*custom_mask
+                    division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=custom_mask
+                    if boolean_mask:
+                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
 
 
 
-            n_rows, n_cols = image.shape
-            for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows"):
-                row_end = min(row_start + chunk_rows, n_rows)
+            if division_needed:
+                n_rows, n_cols = image.shape
+                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows",disable=self.no_print):
+                    row_end = min(row_start + chunk_rows, n_rows)
 
-                # loop over column chunks
-                for col_start in range(0, n_cols, chunk_cols):
-                    col_end = min(col_start + chunk_cols, n_cols)
-                    
-                    divider=division_mask[row_start:row_end, col_start:col_end]
-                    divider[divider==0]=1
-                    # slice the 2D chunk
-                    image[row_start:row_end, col_start:col_end] = image[row_start:row_end, col_start:col_end]/divider
+                    # loop over column chunks
+                    for col_start in range(0, n_cols, chunk_cols):
+                        col_end = min(col_start + chunk_cols, n_cols)
+                        
+                        divider=division_mask[row_start:row_end, col_start:col_end]
+                        divider[divider==0]=1
+                        # slice the 2D chunk
+                        image[row_start:row_end, col_start:col_end] = image[row_start:row_end, col_start:col_end]/divider
           
 
 
-    def map_from_polygons(self,polygons,blending="average",custom_mask=None):
+    def map_from_polygons(self,polygons,blending="average",custom_mask=None,boolean_mask=False):
         start_index=0
         outer_realspace=self.get_outer_polygon_limits(polygons)
         pixelouter=self.real_to_pixel(start_index,outer_realspace)
         pixelouter=np.round(pixelouter).astype(int)
         offset_x_y=-np.min(pixelouter,axis=0)
         image_dims=np.max(pixelouter,axis=0)+offset_x_y
+        division_needed=blending not in ("hard_cut","minimum","maximum")
 
-
-        division_mask=np.zeros(image_dims)#,dtype=np.uint8)
+        if division_needed:
+            division_mask=np.zeros(image_dims)#,dtype=np.uint8)
         image=np.zeros(image_dims)
+        if boolean_mask:
+            bmask=np.zeros(image_dims,dtype=bool)
    
         if blending=="minimum":
             image += np.inf
 
-        for index,poly in enumerate(polygons):
+        for index,poly in enumerate(tqdm(polygons,disable=self.no_print)):
             np_realspace=np.array(poly.oriented_envelope.exterior.xy).T[:-1]
             np_pixelspace=np.round(self.real_to_pixel(start_index,np_realspace)).astype(int)
             image_pixelspace=np_pixelspace+offset_x_y
@@ -688,52 +1124,73 @@ class stitching_object:
 
             if blending=="hard_cut":
                 image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=img
+                if boolean_mask:
+                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
             elif blending=="maximum":
                 stack=np.empty([img.shape[0],img.shape[1],2])
                 stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
                 stack[:,:,1]=img
                 image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.max(stack,axis=-1)
+                if boolean_mask:
+                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
             elif blending=="minimum":
                 stack=np.empty([img.shape[0],img.shape[1],2])
                 stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
                 stack[:,:,1]=img
                 image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.min(stack,axis=-1)
+                if boolean_mask:
+                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
             elif blending=="linear":
                 blending_helper=np.ones(img.shape)     
                 imshape=np.array(img.shape)
                 blending_helper=img_padding_attenuation(blending_helper,imshape//2,mode="linear")   
                 image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*blending_helper
                 division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=blending_helper 
+                if boolean_mask:
+                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
             elif blending=="quadratic":
                 blending_helper=np.ones(img.shape)     
                 imshape=np.array(img.shape)
                 blending_helper=img_padding_attenuation(blending_helper,imshape,mode="linear")   
                 image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*blending_helper
                 division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=blending_helper 
+                if boolean_mask:
+                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
             elif blending=="average":
                 image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img
                 division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=1
+                if boolean_mask:
+                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
 
             elif blending=="custom_single":
                 image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*custom_mask
                 division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=custom_mask
+                if boolean_mask:
+                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
             elif blending=="custom_multi":  
                 image[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=img*custom_mask[index]
                 division_mask[img_start[0]:img_end[0],img_start[1]:img_end[1]]+=custom_mask[index]
+                if boolean_mask:
+                    bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
 
 
         if blending=="minimum":
             image[image==np.inf]=0
 
-        division_mask[division_mask==0]=1
-        image[:,:]/=division_mask
-        return image
+        if division_needed:
+            division_mask[division_mask==0]=1
+            image[:,:]/=division_mask
 
-    def z_transform_images(self,h5file="temp.h5",offset_positive=True):
+        if boolean_mask:        
+            return image,bmask
+        else:
+            return image
+
+    def z_transform_images(self,offset_positive=True,dset_name="data",new_dset_name=None):
         new_img_list=[]
         most_negative=0
         if self.mode=="memory":
-            for img in self.img_list:
+            for img in tqdm(self.img_list,disable=self.no_print,desc="z-transform"):
                 mean=np.mean(img)
                 std=np.std(img)
                 z_trans=(img-mean)/std
@@ -741,35 +1198,33 @@ class stitching_object:
                 most_negative=min(most_negative,np.min(z_trans))
  
             if offset_positive:
-                for i in range(len(self.img_list)):
+                for i in tqdm(range(len(self.img_list)),disable=self.no_print,desc="positive offset"):
                     new_img_list[i] -= most_negative
 
         else:
-            self.temp_file=h5file
-            with h5py.File(h5file, "a") as f:
-                if "z_transform_name_list" in f:
-                    del f["z_transform_name_list"]    
-                f["z_transform_name_list"]=self.img_list
-                maxnum=len(self.img_list)
-                zfillnum=int(np.ceil(np.log10(maxnum)))
-                for i in range(len(self.img_list)):
-                    num=str(i).zfill(zfillnum)
-                    img=self.get_img(i)
+            if self.modifiable_file is None:
+                print(self.warning_mod_is_none)
+                return 0
+            
+            with h5py.File(self.modifiable_file, "r+") as f:
+                newshape=[len(self.img_list),self.dimensions[0][0],self.dimensions[0][1]]
+                if new_dset_name is None:
+                    new_dset_name=dset_name
+                else:
+                    f.create_dataset(new_dset_name, newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]) )
+
+                for i in tqdm(range(len(self.img_list)),disable=self.no_print,desc="z-transform"):
+                    img=f[dset_name][i,:,:]
                     minimum=np.min(img)
                     mean=np.mean(img)
                     std=np.std(img)
-                    if "z_transform/"+num in f:
-                        del f["z_transform/"+num]
-                    f["z_transform/"+num]=(img-mean)/std
+                    f[new_dset_name][i,:,:]=(img-mean)/std
                     most_negative=min((minimum-mean)/std,most_negative)
-                    new_img_list.append("z_transform/"+num)
-                
+                    
                 if offset_positive:
-                    for i in range(len(self.img_list)):
-                        num=str(i).zfill(zfillnum)
-                        arr=f["z_transform/"+num][:]
+                    for i in tqdm(range(len(self.img_list)),disable=self.no_print,desc="positive offset"):
+                        arr=f[new_dset_name][i,:,:]
                         arr-=most_negative
-                        f["z_transform/"+num][:]=arr-most_negative
+                        f[new_dset_name][i,:,:]=arr-most_negative
 
-        return new_img_list
 
