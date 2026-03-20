@@ -1,20 +1,22 @@
-# -*- coding: utf-8 -*-
 """
 Created on Mon May  8 15:32:54 2023
 
 @author: kernke
 """
-import numpy as np
-import matplotlib.pyplot as plt
+import copy
+import json
+import math
+import warnings
+
 import cv2
 import imageio
-import copy
+import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.widgets import TextBox
-import math
-from .general_util import point_in_convex_ccw_roi,lineIntersection,assure_multiple
+
+from .general_util import assure_multiple
 from .image_aligning import align_images
-import json
-import warnings
+
 
 #%% make_scale_bar
 def vis_make_scale_bar(
@@ -793,14 +795,14 @@ class image_plotting:
                     if len(self.ending_states[self.line_index][self.end_artist_index])==0:
                         self.ending_states[self.line_index][self.end_artist_index]+=[self.image_counter,-1]
                         print("line " +str(self.line_index)+' ending '+str(self.end_artist_index)
-                              +str(" marked as 'exited region of interest'"))
+                              +" marked as 'exited region of interest'")
                     else:
                         print('ending state already determined')
                 else:
                     self.ending_states[self.line_index]=[[],[]]
                     self.ending_states[self.line_index][self.end_artist_index]+=[self.image_counter,-1]
                     print("line " +str(self.line_index)+' ending '+str(self.end_artist_index)
-                          +str(" marked as 'exited region of interest'"))
+                          +" marked as 'exited region of interest'")
             else:
                 print("no endpoint active to mark")
 
@@ -853,7 +855,7 @@ class image_plotting:
         to either show or hide the line overlay press 'l'
         """
         
-        if not ['pick_event',self._pick_lines] in self._main_args:
+        if ['pick_event',self._pick_lines] not in self._main_args:
             print("line_features necessary")
         
         if not hasattr(self,"keyboard_funcs"):
@@ -902,8 +904,6 @@ class image_plotting:
             self._plot_overlay()
             plt.gcf().canvas.draw()
         
-        
-
 
     #%% save as json        
     def addfunc_save_as_json(self,filepath):
@@ -967,7 +967,7 @@ def save_as_json(filepath,line_objs,shifts,line_set):
     
 
 def read_in_json_old(filepath):
-    with open(filepath, 'r') as fp:
+    with open(filepath) as fp:
         save_line_objs,save_shifts = json.load(fp)
     
     shifts={}    
@@ -989,14 +989,14 @@ def read_in_json_old(filepath):
 
 #%%
 def read_in_json(filepath):
-    with open(filepath, 'r') as fp:
+    with open(filepath) as fp:
         save_line_objs,save_shifts = json.load(fp)
 
     str_index=filepath[::-1].find('.')
     fp2=filepath[:-str_index-1]
     fp2 += '_set.json'
 
-    with open(fp2, 'r') as fp:
+    with open(fp2) as fp:
         line_set = json.load(fp)
     
     line_set=set(line_set)

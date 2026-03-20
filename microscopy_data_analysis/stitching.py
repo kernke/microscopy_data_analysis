@@ -22,9 +22,12 @@ class stack_and_stitching_object:
         for background subtraction, shift correction or stitching 
         
         Args:
-            mode (string): 'storage' only single images are loaded into RAM  simultaneously 
-            ('storage' supports images as .tif, .png ... or as multiple files in .h5 or as datacube in .h5)
-            The mode 'memory' can be used, for small image series, that are already being loaded fully into RAM
+            mode (string): 'storage' only single images are loaded into RAM 
+            when needed 
+            ('storage' supports images as .tif, .png ... 
+            or as multiple files in .h5 or as datacube in .h5)
+            The mode 'memory' can be used, for small image series, 
+            that are already being loaded fully into RAM
             Defaults to 'storage' 
             
             no_print (bool): set to 'True' for silent execution
@@ -36,31 +39,40 @@ class stack_and_stitching_object:
         self.directory = None
         self.modifiable_file = None
         self.overwrite = True
-        self.warning_mod_is_none = "please first provide a modifiable dataset by using 'create_h5cube_duplicate_for_modifying'"
+        self.warning_mod_is_none = "please first provide a modifiable dataset" \
+                                " by using 'create_h5cube_duplicate_for_modifying'"
         if not no_print:
             if mode == "storage":
-                print("For .h5 provide the path to the h5-file (that serves as h5-directory) via the 'set_directory_path' method")
-                print("For .tif, .png, ... image files  either provide  a list of relative or absolute filepaths via 'set_img_list'")
-                print("or provide the folder containing only the contributing images via 'set_directory_path'")
+                print("For .h5 provide the path to the h5-file "
+                "(that serves as h5-directory) via the 'set_directory_path' method")
+                print("For .tif, .png, ... image files  either provide  a list of " \
+                "relative or absolute filepaths via 'set_img_list'")
+                print("or provide the folder containing only the contributing images " \
+                "via 'set_directory_path'")
             if mode == "memory":
-                print("please provide the images, as a list of images via 'set_img_list'")
+                print("please provide the images, as a list of images " \
+                "via 'set_img_list'")
 
     def info(self):
         print("General conditions: ")
-        print("All images of the series are assumed, to have no rotation and same pixel size and same dimensions.")
-        # print("Some functions additionally require same dimensions for all images (for example, all image shapes: 512x256).")
+        print("All images of the series are assumed, to have no rotation and " \
+        "same pixel size and same dimensions.")
+        # print("Some functions additionally require same dimensions for all images 
+        # (for example, all image shapes: 512x256).")
 
     def set_directory_path(self, path_string):
         """
         Set the path to either an h5-file or a folder containing the images
 
         Args:
-            path_string (string): looking like, for example: 'folderA/data.h5' or 'folderB'
+            path_string (string): looking like, for example: 
+            'folderA/data.h5' or 'folderB'
         """
         self.directory = path_string
         if path_string[-3:] == ".h5":
             self.h5_mode = True
-            print("please provide the h5 image file paths as a list via 'set_img_list' or use 'imgs_from_datacube'")
+            print("please provide the h5 image file paths as a list via 'set_img_list' "
+            "or use 'imgs_from_datacube'")
         else:
             rel_img_list = sorted(os.listdir(path_string))
             self.img_list = []
@@ -88,9 +100,12 @@ class stack_and_stitching_object:
         Change source images of the stack 
         
         Args:
-            mode (string): 'storage' only single images are loaded into RAM simultaneously 
-            ('storage' supports images as .tif, .png ... or as multiple files in .h5 or as datacube in .h5)
-            The mode 'memory' can be used, for small image series, that are already being loaded fully into RAM
+            mode (string): 'storage' only single images are loaded into RAM 
+            when needed 
+            ('storage' supports images as .tif, .png ... 
+            or as multiple files in .h5 or as datacube in .h5)
+            The mode 'memory' can be used, for small image series, 
+            that are already being loaded fully into RAM
             Defaults to 'storage' 
             
             no_print (bool): set to 'True' for silent execution
@@ -100,11 +115,15 @@ class stack_and_stitching_object:
         self.directory = None
         if not no_print:
             if mode == "storage":
-                print("For .h5 provide the path to the h5-file (that serves as h5-directory) via the 'set_directory_path' method")
-                print("For .tif, .png, ... image files  either provide  a list of relative or absolute filepaths via 'set_img_list'")
-                print("or provide the folder containing only the contributing images via 'set_directory_path'")
+                print("For .h5 provide the path to the h5-file "
+                "(that serves as h5-directory) via the 'set_directory_path' method")
+                print("For .tif, .png, ... image files  either provide  a list of " \
+                "relative or absolute filepaths via 'set_img_list'")
+                print("or provide the folder containing only the contributing images " \
+                "via 'set_directory_path'")
             if mode == "memory":
-                print("please provide the images, as a list of images via 'set_img_list'")
+                print("please provide the images, as a list of images " \
+                "via 'set_img_list'")
 
     def set_img_list(self, img_list):
         """
@@ -243,7 +262,8 @@ class stack_and_stitching_object:
         with h5py.File(self.modifiable_file, "r+") as f:
             f[dset_name][index, :, :] = img
 
-    def create_h5cube_duplicate_for_modifying(self, filename="temp.h5", dset_name="data", force_dtype=False):
+    def create_h5cube_duplicate_for_modifying(self, filename="temp.h5", 
+                                              dset_name="data", force_dtype=False):
         """
         Create an h5 file containing the data as 3D-dataset
 
@@ -253,12 +273,15 @@ class stack_and_stitching_object:
             dset_name (string): name or internal path to the dataset
 
             force_dtype (bool): set to 'True' to not change the datatype,
-            otherwise Float32 is chosen for best compatibility with functions acting on the data
-            (datatype of a created dataset can not be changed -> another duplicate dataset necessary for change)
+            otherwise Float32 is chosen for best compatibility with functions 
+            acting on the data
+            (datatype of a created dataset can not be changed -> another duplicate 
+            dataset necessary for change)
             Defaults to 'False'
         """
         if not self.no_print:
-            print("With 'use_images_from' the output of 'get_img' can be set to correspond to original or modified images")
+            print("With 'use_images_from' the output of 'get_img' can be set to " \
+            "correspond to original or modified images")
         self.modifiable_file = filename
         if force_dtype:
             img = self.get_img(0)
@@ -273,10 +296,13 @@ class stack_and_stitching_object:
             print("all images must have equal dimensions")
             return 0
         else:
-            newshape = [len(self.img_list), self.dimensions[0][0], self.dimensions[0][1]]
+            newshape = [len(self.img_list), self.dimensions[0][0], 
+                        self.dimensions[0][1]]
 
         with h5py.File(filename, "w") as f:
-            f.create_dataset(dset_name, newshape, self.dtype, chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))  # dtype="f4")
+            f.create_dataset(dset_name, newshape, self.dtype, # dtype="f4")
+                            chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))  
+            
             for i in tqdm(range(len(self.img_list)), disable=self.no_print):
                 img = self.get_img(i)
                 f[dset_name][i, :, :] = img
@@ -290,10 +316,12 @@ class stack_and_stitching_object:
                 new_dset_name = dset_name
             else:
                 newshape = f[dset_name].shape
-                f.create_dataset(new_dset_name, newshape, self.dtype, chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
+                f.create_dataset(new_dset_name, newshape, self.dtype, 
+                            chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
             for i in range(len(self.img_list)):
-                f[new_dset_name][i, :, :] = np.maximum(f[dset_name][i, :, :] - dark_field, 0)
+                f[new_dset_name][i, :, :] = np.maximum(
+                                            f[dset_name][i, :, :] - dark_field, 0)
 
     def stats(self, histogram=True, histo_levels=100, dset_name=None, mask=None):
         stack_max = -np.inf
@@ -308,7 +336,8 @@ class stack_and_stitching_object:
                     easy_iterate = True
 
         if easy_iterate:
-            for i in tqdm(range(len(self.img_list)), disable=self.no_print, desc="min/max"):
+            for i in tqdm(range(len(self.img_list)), 
+                          disable=self.no_print, desc="min/max"):
                 img = self.get_img(i)
                 stack_max = max(np.max(img), stack_max)
                 stack_min = min(np.min(img), stack_min)
@@ -316,8 +345,10 @@ class stack_and_stitching_object:
             if histogram:
                 bin_edges = np.linspace(stack_min, stack_max, histo_levels + 1)
                 cumulative = np.zeros(histo_levels)
-                for i in tqdm(range(len(self.img_list)), disable=self.no_print, desc="histo"):
-                    hist, new_bins = np.histogram(np.ravel(self.get_img(i)), bins=bin_edges)
+                for i in tqdm(range(len(self.img_list)), 
+                              disable=self.no_print, desc="histo"):
+                    hist, new_bins = np.histogram(np.ravel(self.get_img(i)), 
+                                                  bins=bin_edges)
                     cumulative += hist
                 return stack_min, stack_max, bin_edges, hist
             else:
@@ -327,7 +358,8 @@ class stack_and_stitching_object:
                 chunk_rows, chunk_cols = f[dset_name].chunks
                 n_rows, n_cols = f[dset_name].shape
 
-                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows", disable=self.no_print):
+                for row_start in tqdm(range(0, n_rows, chunk_rows), 
+                                      desc="Rows", disable=self.no_print):
                     row_end = min(row_start + chunk_rows, n_rows)
 
                     # loop over column chunks
@@ -344,7 +376,8 @@ class stack_and_stitching_object:
                 if histogram:
                     bin_edges = np.linspace(stack_min, stack_max, histo_levels + 1)
                     cumulative = np.zeros(histo_levels)
-                    for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows", disable=self.no_print):
+                    for row_start in tqdm(range(0, n_rows, chunk_rows), 
+                                          desc="Rows", disable=self.no_print):
                         row_end = min(row_start + chunk_rows, n_rows)
 
                         # loop over column chunks
@@ -354,10 +387,12 @@ class stack_and_stitching_object:
                             # slice the 2D chunk
                             tile = f[dset_name][row_start:row_end, col_start:col_end]
                             if mask:
-                                tile = tile[f[mask][row_start:row_end, col_start:col_end]]
+                                tile = tile[f[mask][row_start:row_end, 
+                                                    col_start:col_end]]
                                 hist, new_bins = np.histogram(tile, bins=bin_edges)
                             else:
-                                hist, new_bins = np.histogram(np.ravel(tile), bins=bin_edges)
+                                hist, new_bins = np.histogram(np.ravel(tile), 
+                                                              bins=bin_edges)
                             cumulative += hist
 
                     return stack_min, stack_max, bin_edges, hist
@@ -376,7 +411,7 @@ class stack_and_stitching_object:
                     new_dset_name = dset_name
                 else:
                     f.create_dataset(new_dset_name, newshape, dtype="f4", 
-                                     chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
+                            chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
                 # f.create_dataset("data_corrected", newshape,dtype="f4",
                 #                chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
@@ -400,7 +435,8 @@ class stack_and_stitching_object:
                                 # fillvalue=0
                             )
 
-                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows", disable=self.no_print):
+                for row_start in tqdm(range(0, n_rows, chunk_rows), 
+                                      desc="Rows", disable=self.no_print):
                     row_end = min(row_start + chunk_rows, n_rows)
 
                     # loop over column chunks
@@ -408,9 +444,12 @@ class stack_and_stitching_object:
                         col_end = min(col_start + chunk_cols, n_cols)
 
                         # slice the 2D chunk
-                        f[new_dset_name][row_start:row_end, col_start:col_end] = np.clip(f[dset_name][row_start:row_end, col_start:col_end], vmin, vmax)
+                        f[new_dset_name][row_start:row_end, col_start:col_end] = \
+                            np.clip(f[dset_name][row_start:row_end, col_start:col_end], 
+                                    vmin, vmax)
 
-    def normalize(self, old_min, old_max, new_min, new_max, dset_name="data", new_dset_name=None):
+    def normalize(self, old_min, old_max, new_min, new_max, 
+                  dset_name="data", new_dset_name=None):
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
@@ -424,11 +463,14 @@ class stack_and_stitching_object:
                 if new_dset_name is None:
                     new_dset_name = dset_name
                 else:
-                    f.create_dataset(new_dset_name, newshape, dtype="f4", chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
+                    f.create_dataset(new_dset_name, newshape, dtype="f4", 
+                            chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
-                # f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+                # f.create_dataset("data_corrected", newshape,dtype="f4"
+                # chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
                 for i in tqdm(range(len(self.img_list)), disable=self.no_print):
-                    f[new_dset_name][i, :, :] = (f[dset_name][i, :, :] - old_min) * factor + new_min
+                    f[new_dset_name][i, :, :] = (f[dset_name][i, :, :] - old_min) * \
+                                                factor + new_min
             else:
 
                 # image=f[dset_name]
@@ -445,7 +487,8 @@ class stack_and_stitching_object:
                                 # fillvalue=0
                             )
 
-                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows", disable=self.no_print):
+                for row_start in tqdm(range(0, n_rows, chunk_rows), 
+                                      desc="Rows", disable=self.no_print):
                     row_end = min(row_start + chunk_rows, n_rows)
 
                     # loop over column chunks
@@ -453,7 +496,9 @@ class stack_and_stitching_object:
                         col_end = min(col_start + chunk_cols, n_cols)
 
                         # slice the 2D chunk
-                        f[new_dset_name][row_start:row_end, col_start:col_end] = (f[dset_name][row_start:row_end, col_start:col_end] - old_min) * factor + new_min
+                        f[new_dset_name][row_start:row_end, col_start:col_end] = \
+                            (f[dset_name][row_start:row_end, col_start:col_end] \
+                             - old_min) * factor + new_min
 
     def flat_field_generation(self, percentile_steps=19, subdiv=4, dset_name="data"):
         """
@@ -485,17 +530,22 @@ class stack_and_stitching_object:
                 for i in range(1, subdiv):
                     if not self.no_print:
                         print(str(i) + " out of " + str(subdiv) + " iterations")
-                    flats[:, start_index:i * subdiv_steps, :] = np.percentile(f[dset_name][:, start_index:i * subdiv_steps, :], steps, axis=0)
+                    flats[:, start_index:i * subdiv_steps, :] = np.percentile(
+                        f[dset_name][:, start_index:i * subdiv_steps, :], steps, axis=0)
                 if not self.no_print:
                     print(str(subdiv) + " out of " + str(subdiv) + " iterations")
-                flats[:, (subdiv - 1) * subdiv_steps:, :] = np.percentile(f[dset_name][:, (subdiv - 1) * subdiv_steps:, :], steps, axis=0)
+                flats[:, (subdiv - 1) * subdiv_steps:, :] = np.percentile(
+                    f[dset_name][:, (subdiv - 1) * subdiv_steps:, :], steps, axis=0)
         # flats=np.percentile(img_series,steps,axis=0)
         self.flat_field = np.mean(flats, axis=0)
         self.flats = flats
         return self.flat_field
 
-    def dust_from_flat_field(self, flat_field, threshold_block_size=17, morph_closing_size=5, dark_background=True, dilate=0):
-        th = cv2.adaptiveThreshold(img_to_uint8(flat_field), 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, threshold_block_size, 2)
+    def dust_from_flat_field(self, flat_field, threshold_block_size=17, 
+                             morph_closing_size=5, dark_background=True, dilate=0):
+        th = cv2.adaptiveThreshold(img_to_uint8(flat_field), 255, 
+                                   cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 
+                                   threshold_block_size, 2)
         kernel = np.ones((morph_closing_size, morph_closing_size), np.uint8)
         closed = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel)
 
@@ -508,7 +558,7 @@ class stack_and_stitching_object:
 
         img_d = cv2.dilate(img.astype(np.uint8), np.ones([3, 3], dtype=np.uint8))
         last = np.copy(img)
-        for i in range(dilate):
+        for _ in range(dilate): #_ =i
             last = np.copy(img_d)
             img_d = cv2.dilate(img_d, np.ones([3, 3], dtype=np.uint8))
 
@@ -522,7 +572,7 @@ class stack_and_stitching_object:
 
             # ring indices
             self.dust_dict[i].append(np.where(rings == i + 1))
-        self.dust_dict
+        #self.dust_dict
         return last
 
     def dust_removal(self, img, mode="median"):
@@ -538,7 +588,8 @@ class stack_and_stitching_object:
             elif mode == "normal":
                 ring_values = np.mean(img[self.dust_dict[i][1]])
                 ring_std = np.std(img[self.dust_dict[i][1]], mean=ring_values)
-                ring_values = np.random.normal(ring_values, ring_std, len(img[self.dust_dict[i][1]]))
+                ring_values = np.random.normal(ring_values, ring_std, 
+                                               len(img[self.dust_dict[i][1]]))
 
             result[self.dust_dict[i][0]] = ring_values
         return result
@@ -552,7 +603,8 @@ class stack_and_stitching_object:
             for i in range(len(self.img_list)):
                 f["data"][i, :, :] = self.dust_removal(f["data"][i, :, :])
 
-    def flat_field_correction(self, flat_field=None, dset_name="data", new_dset_name=None):
+    def flat_field_correction(self, flat_field=None, 
+                              dset_name="data", new_dset_name=None):
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
@@ -568,9 +620,11 @@ class stack_and_stitching_object:
             if new_dset_name is None:
                 new_dset_name = dset_name
             else:
-                f.create_dataset(new_dset_name, newshape, dtype="f4", chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
+                f.create_dataset(new_dset_name, newshape, dtype="f4", 
+                            chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
-            # f.create_dataset("data_corrected", newshape,dtype="f4",chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
+            # f.create_dataset("data_corrected", newshape,dtype="f4",
+            # chunks=(1,self.dimensions[0][0],self.dimensions[0][1]))
             for i in tqdm(range(len(self.img_list)), disable=self.no_print):
                 f[new_dset_name][i, :, :] = f[dset_name][i, :, :] / flat_field
 
@@ -589,24 +643,30 @@ class stack_and_stitching_object:
             div = img_max - img_min
 
             newname = self.modifiable_file[:-3] + "_very_temporary.h5"
-            newshape = [len(self.img_list), self.dimensions[0][0], self.dimensions[0][1]]
+            newshape = [len(self.img_list), 
+                        self.dimensions[0][0], 
+                        self.dimensions[0][1]]
             with h5py.File(newname, "w") as tf:
-                tf.create_dataset("data", newshape, np.uint16, chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
+                tf.create_dataset("data", newshape, np.uint16, 
+                            chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
                 for i in range(len(self.img_list)):
                     corr = ((f["data_corrected"][i, :, :] - img_min) / div) * 65535
                     tf["data"][i, :, :] = corr.astype(np.uint16)
             if real_zero:
                 newname = self.modifiable_file[:-3] + "_real_zero.h5"
                 with h5py.File(newname, "w") as tf:
-                    tf.create_dataset("data", newshape, np.uint16, chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
+                    tf.create_dataset("data", newshape, np.uint16, 
+                            chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
                     for i in range(len(self.img_list)):
                         corr = (f["data_corrected"][i, :, :] / img_max) * 65535
                         tf["data"][i, :, :] = corr.astype(np.uint16)
 
         os.remove(self.modifiable_file)
-        os.rename(self.modifiable_file[:-3] + "_very_temporary.h5", self.modifiable_file)
+        os.rename(self.modifiable_file[:-3] + "_very_temporary.h5", 
+                  self.modifiable_file)
 
-    def make_polygons(self, units_per_pixel=None, positions=None, dimensions=None, orientation=0):
+    def make_polygons(self, units_per_pixel=None, positions=None, 
+                      dimensions=None, orientation=0):
         if units_per_pixel is None:
             units_per_pixel = self.units_per_pixel
         if positions is None:
@@ -642,7 +702,8 @@ class stack_and_stitching_object:
         self.anchor_points = anchor_points
         return polygons, anchor_points
 
-    def connection_groups(self, polygons=None, units_per_pixel=None, minimal_number_of_pixels=64, inverse=False):
+    def connection_groups(self, polygons=None, units_per_pixel=None, 
+                          minimal_number_of_pixels=64, inverse=False):
         if polygons is None:
             polygons = self.polygons
         if units_per_pixel is None:
@@ -674,7 +735,9 @@ class stack_and_stitching_object:
         self.con_group = con_groups[0]
         return G, con_groups
 
-    def plot_connection_network(self, figsize=[15, 15], relative=True):
+    def plot_connection_network(self, figsize=None, relative=True):
+        if figsize is None:
+            figsize=[15,15]
         plt.figure(figsize=figsize)
         if relative:
             plt.title("percentage of maximum neighbor-overlap")
@@ -719,7 +782,8 @@ class stack_and_stitching_object:
         points[3] = minx, maxy
         return points
 
-    def close_translation_by_phase_correlation(self, im1, im2, sigma=1, max_transl=None):
+    def close_translation_by_phase_correlation(self, im1, im2, 
+                                               sigma=1, max_transl=None):
 
         # dims=im1.shape
 
@@ -888,9 +952,9 @@ class stack_and_stitching_object:
                 croplist1.append(im1_crop)
                 croplist2.append(im2_crop)
 
-            pix_transl, certainty = self.close_translation_by_phase_correlation(im1_crop[:, :], im2_crop[:, :],
-                                                                             sigma=sigma, max_transl=max_transl_pix)  # *im1_crop[:,:,1]
-
+            pix_transl, certainty = self.close_translation_by_phase_correlation(
+                                                im1_crop[:, :], im2_crop[:, :],
+                                                sigma=sigma, max_transl=max_transl_pix)
             real_transl = self.units_per_pixel * pix_transl[::-1]
             real_transl[1] *= -1
 
@@ -953,12 +1017,14 @@ class stack_and_stitching_object:
         final = result.x.reshape(len(self.positions), 2)
 
         moved_polygons = [
-            shapely.affinity.translate(poly, xoff=px - poly.centroid.x, yoff=py - poly.centroid.y)
+            shapely.affinity.translate(poly, xoff=px - poly.centroid.x, 
+                                       yoff=py - poly.centroid.y)
             for poly, (px, py) in zip(self.polygons, final)
         ]
         return moved_polygons
 
-    def map_from_polygons_h5(self, polygons, h5file=None, blending="average", custom_mask=None, boolean_mask=False):
+    def map_from_polygons_h5(self, polygons, h5file=None, blending="average", 
+                             custom_mask=None, boolean_mask=False):
 
         if h5file is None and self.modifiable_file is None:
             print(self.warning_mod_is_none)
@@ -1009,14 +1075,17 @@ class stack_and_stitching_object:
                 stack = np.empty([imshape[0], imshape[1], 2])
             elif blending == "linear":
                 blending_helper = np.ones(imshape)
-                blending_helper = img_padding_attenuation(blending_helper, imshape // 2, mode="linear")
+                blending_helper = img_padding_attenuation(blending_helper, 
+                                                          imshape // 2, mode="linear")
             elif blending == "quadratic":
                 blending_helper = np.ones(imshape)
-                blending_helper = img_padding_attenuation(blending_helper, imshape, mode="linear")
+                blending_helper = img_padding_attenuation(blending_helper, 
+                                                          imshape, mode="linear")
 
             for index, poly in enumerate(tqdm(polygons, disable=self.no_print)):
                 np_realspace = np.array(poly.oriented_envelope.exterior.xy).T[:-1]
-                np_pixelspace = np.round(self.real_to_pixel(start_index, np_realspace)).astype(int)
+                np_pixelspace = np.round(self.real_to_pixel(start_index, 
+                                                            np_realspace)).astype(int)
                 image_pixelspace = np_pixelspace + offset_x_y
                 img = self.get_img(index)
                 img_start = np.min(image_pixelspace, axis=0)
@@ -1029,16 +1098,19 @@ class stack_and_stitching_object:
                         bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
                 elif blending == "maximum":
-                    stack[:, :, 0] = image[img_start[0]:img_end[0], img_start[1]:img_end[1]]
+                    stack[:, :, 0] = \
+                        image[img_start[0]:img_end[0], img_start[1]:img_end[1]]
                     stack[:, :, 1] = img
-                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] = np.max(stack, axis=-1)
+                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] = np.max(
+                                                                        stack, axis=-1)
                     if boolean_mask:
                         bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
                 # elif blending=="minimum":
                 #    stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
                 #    stack[:,:,1]=img
-                #    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.min(stack,axis=-1)
+                #    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.min(
+                # stack,axis=-1)
                 #    if boolean_mask:
                 #        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
 
@@ -1049,28 +1121,36 @@ class stack_and_stitching_object:
                         bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
                 elif blending == "linear":
-                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * blending_helper
-                    division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += blending_helper
+                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                                img * blending_helper
+                    division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                                blending_helper
                     if boolean_mask:
                         bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
                 elif blending == "quadratic":
                     blending_helper = np.ones(img.shape)
                     imshape = np.array(img.shape)
-                    blending_helper = img_padding_attenuation(blending_helper, imshape, mode="linear")
-                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * blending_helper
-                    division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += blending_helper
+                    blending_helper = img_padding_attenuation(blending_helper,
+                                                               imshape, mode="linear")
+                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                                img * blending_helper
+                    division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                                blending_helper
                     if boolean_mask:
                         bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
                 elif blending == "custom_single":
-                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * custom_mask
-                    division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += custom_mask
+                    image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                                    img * custom_mask
+                    division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                                    custom_mask
                     if boolean_mask:
                         bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
             if division_needed:
                 n_rows, n_cols = image.shape
-                for row_start in tqdm(range(0, n_rows, chunk_rows), desc="Rows", disable=self.no_print):
+                for row_start in tqdm(range(0, n_rows, chunk_rows), 
+                                      desc="Rows", disable=self.no_print):
                     row_end = min(row_start + chunk_rows, n_rows)
 
                     # loop over column chunks
@@ -1080,9 +1160,11 @@ class stack_and_stitching_object:
                         divider = division_mask[row_start:row_end, col_start:col_end]
                         divider[divider == 0] = 1
                         # slice the 2D chunk
-                        image[row_start:row_end, col_start:col_end] = image[row_start:row_end, col_start:col_end] / divider
+                        image[row_start:row_end, col_start:col_end] = \
+                                image[row_start:row_end, col_start:col_end] / divider
 
-    def map_from_polygons(self, polygons, blending="average", custom_mask=None, boolean_mask=False):
+    def map_from_polygons(self, polygons, blending="average", 
+                          custom_mask=None, boolean_mask=False):
         start_index = 0
         outer_realspace = self.get_outer_polygon_limits(polygons)
         pixelouter = self.real_to_pixel(start_index, outer_realspace)
@@ -1102,7 +1184,8 @@ class stack_and_stitching_object:
 
         for index, poly in enumerate(tqdm(polygons, disable=self.no_print)):
             np_realspace = np.array(poly.oriented_envelope.exterior.xy).T[:-1]
-            np_pixelspace = np.round(self.real_to_pixel(start_index, np_realspace)).astype(int)
+            np_pixelspace = np.round(self.real_to_pixel(start_index, 
+                                                        np_realspace)).astype(int)
             image_pixelspace = np_pixelspace + offset_x_y
             img = self.get_img(index)
             img_start = np.min(image_pixelspace, axis=0)
@@ -1117,30 +1200,38 @@ class stack_and_stitching_object:
                 stack = np.empty([img.shape[0], img.shape[1], 2])
                 stack[:, :, 0] = image[img_start[0]:img_end[0], img_start[1]:img_end[1]]
                 stack[:, :, 1] = img
-                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] = np.max(stack, axis=-1)
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] = \
+                                                                np.max(stack, axis=-1)
                 if boolean_mask:
                     bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
             elif blending == "minimum":
                 stack = np.empty([img.shape[0], img.shape[1], 2])
                 stack[:, :, 0] = image[img_start[0]:img_end[0], img_start[1]:img_end[1]]
                 stack[:, :, 1] = img
-                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] = np.min(stack, axis=-1)
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] = \
+                                                            np.min(stack, axis=-1)
                 if boolean_mask:
                     bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
             elif blending == "linear":
                 blending_helper = np.ones(img.shape)
                 imshape = np.array(img.shape)
-                blending_helper = img_padding_attenuation(blending_helper, imshape // 2, mode="linear")
-                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * blending_helper
-                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += blending_helper
+                blending_helper = img_padding_attenuation(blending_helper, 
+                                                            imshape // 2, mode="linear")
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                            img * blending_helper
+                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                            blending_helper
                 if boolean_mask:
                     bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
             elif blending == "quadratic":
                 blending_helper = np.ones(img.shape)
                 imshape = np.array(img.shape)
-                blending_helper = img_padding_attenuation(blending_helper, imshape, mode="linear")
-                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * blending_helper
-                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += blending_helper
+                blending_helper = img_padding_attenuation(blending_helper, 
+                                                          imshape, mode="linear")
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                            img * blending_helper
+                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                            blending_helper
                 if boolean_mask:
                     bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
             elif blending == "average":
@@ -1150,13 +1241,17 @@ class stack_and_stitching_object:
                     bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
             elif blending == "custom_single":
-                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * custom_mask
-                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += custom_mask
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                                    img * custom_mask
+                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                                    custom_mask
                 if boolean_mask:
                     bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
             elif blending == "custom_multi":
-                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img * custom_mask[index]
-                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += custom_mask[index]
+                image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                            img * custom_mask[index]
+                division_mask[img_start[0]:img_end[0], img_start[1]:img_end[1]] += \
+                                                            custom_mask[index]
                 if boolean_mask:
                     bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
@@ -1172,7 +1267,8 @@ class stack_and_stitching_object:
         else:
             return image
 
-    def z_transform_images(self, offset_positive=True, dset_name="data", new_dset_name=None):
+    def z_transform_images(self, offset_positive=True, 
+                           dset_name="data", new_dset_name=None):
         new_img_list = []
         most_negative = 0
         if self.mode == "memory":
@@ -1184,7 +1280,8 @@ class stack_and_stitching_object:
                 most_negative = min(most_negative, np.min(z_trans))
 
             if offset_positive:
-                for i in tqdm(range(len(self.img_list)), disable=self.no_print, desc="positive offset"):
+                for i in tqdm(range(len(self.img_list)), 
+                              disable=self.no_print, desc="positive offset"):
                     new_img_list[i] -= most_negative
 
         else:
@@ -1193,13 +1290,18 @@ class stack_and_stitching_object:
                 return 0
 
             with h5py.File(self.modifiable_file, "r+") as f:
-                newshape = [len(self.img_list), self.dimensions[0][0], self.dimensions[0][1]]
+                newshape = [len(self.img_list), 
+                            self.dimensions[0][0], 
+                            self.dimensions[0][1]]
                 if new_dset_name is None:
                     new_dset_name = dset_name
                 else:
-                    f.create_dataset(new_dset_name, newshape, dtype="f4", chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
+                    f.create_dataset(new_dset_name, newshape, dtype="f4", 
+                                     chunks=(1, self.dimensions[0][0], 
+                                             self.dimensions[0][1]))
 
-                for i in tqdm(range(len(self.img_list)), disable=self.no_print, desc="z-transform"):
+                for i in tqdm(range(len(self.img_list)), 
+                              disable=self.no_print, desc="z-transform"):
                     img = f[dset_name][i, :, :]
                     minimum = np.min(img)
                     mean = np.mean(img)
@@ -1208,7 +1310,8 @@ class stack_and_stitching_object:
                     most_negative = min((minimum - mean) / std, most_negative)
 
                 if offset_positive:
-                    for i in tqdm(range(len(self.img_list)), disable=self.no_print, desc="positive offset"):
+                    for i in tqdm(range(len(self.img_list)), 
+                                  disable=self.no_print, desc="positive offset"):
                         arr = f[new_dset_name][i, :, :]
                         arr -= most_negative
                         f[new_dset_name][i, :, :] = arr - most_negative

@@ -729,9 +729,11 @@ class line_analysis_object:
 
                             stitchlength = math.sqrt(sum((start - end) * (start - end)))
 
-                            cond1 = tester > val_med_mad[g][0] - val_threshold * val_med_mad[g][1]
+                            cond1 = tester > \
+                                val_med_mad[g][0] - val_threshold * val_med_mad[g][1]
                             cond2 = (
-                                stitchlength < (length1 + length2) * ratio_stitched_to_orig_below
+                                stitchlength < \
+                                    (length1 + length2) * ratio_stitched_to_orig_below
                             )
                             cond3 = stitchlength < merge_below_distance
 

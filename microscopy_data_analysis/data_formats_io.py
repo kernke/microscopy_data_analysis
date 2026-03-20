@@ -78,9 +78,11 @@ def h5_to_pyramidal_tiff(
                         h, w = tile.shape[:2]
                         h2, w2 = max(h // 2, 1), max(w // 2, 1)
                         if len(tile.shape) == 3:
-                            tile_ds = tile[:h2*2, :w2*2].reshape(h2, 2, w2, 2, tile.shape[2]).mean(axis=(1,3)).astype(dtype)
+                            tile_ds = tile[:h2*2, :w2*2].reshape(h2, 
+                                2, w2, 2, tile.shape[2]).mean(axis=(1,3)).astype(dtype)
                         else:
-                            tile_ds = tile[:h2*2, :w2*2].reshape(h2, 2, w2, 2).mean(axis=(1,3)).astype(dtype)
+                            tile_ds = tile[:h2*2, :w2*2].reshape(h2, 
+                                2, w2, 2).mean(axis=(1,3)).astype(dtype)
                         yield tile_ds
 
                 tif.write(

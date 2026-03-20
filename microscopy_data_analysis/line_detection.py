@@ -73,7 +73,8 @@ def obtain_maps(qkeys, qline_images, qsum_images, qcheck_images, lowhigh):
         fullmap[xmin : xmin + ishape[0], ymin : ymin + ishape[1]] += qsum_images[i]
 
         for j in range(nangles):
-            checkmaps[j, xmin : xmin + ishape[0], ymin : ymin + ishape[1]] += qcheck_images[i][j]
+            checkmaps[j, xmin : xmin + ishape[0], ymin : ymin + ishape[1]] += \
+                                                                qcheck_images[i][j]
             singlemaps[j, xmin : xmin + ishape[0], ymin : ymin + ishape[1]] += (
                 qline_images[i][j] > 10
             ) * 1.0
@@ -119,14 +120,16 @@ def line_check_angle_s(lines, rotangle, deg_tol=1.5):
         for points in lines:
             x1, y1, x2, y2 = points[0]
             denom = max(np.abs(x2 - x1), 1)
-            if abs(y2 - y1) / denom < delta_ratios[1] or abs(y2 - y1) / denom > delta_ratios[0]:
+            if abs(y2 - y1) / denom < delta_ratios[1] or \
+                    abs(y2 - y1) / denom > delta_ratios[0]:
                 newlines.append([x1, y1, x2, y2])
 
     elif dangle0 < 0 and dangle1 > 0:
         for points in lines:
             x1, y1, x2, y2 = points[0]
             denom = max(np.abs(x2 - x1), 1)
-            if abs(y2 - y1) / denom < delta_ratios[1] and abs(y2 - y1) / denom > delta_ratios[0]:
+            if abs(y2 - y1) / denom < delta_ratios[1] and \
+                    abs(y2 - y1) / denom > delta_ratios[0]:
                 newlines.append([x1, y1, x2, y2])
     else:
         delta_ratios = np.sort(np.abs(delta_ratios))
@@ -134,7 +137,8 @@ def line_check_angle_s(lines, rotangle, deg_tol=1.5):
         for points in lines:
             x1, y1, x2, y2 = points[0]
             denom = max(np.abs(x2 - x1), 1)
-            if abs(y2 - y1) / denom < delta_ratios[1] and abs(y2 - y1) / denom > delta_ratios[0]:
+            if abs(y2 - y1) / denom < delta_ratios[1] and \
+                    abs(y2 - y1) / denom > delta_ratios[0]:
                 newlines.append([x1, y1, x2, y2])
 
     return newlines

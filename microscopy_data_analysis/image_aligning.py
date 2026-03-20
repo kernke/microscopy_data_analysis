@@ -178,10 +178,12 @@ def stitch(im1, im2):
             im2pos[i]=0
 
     sheet[im1pos[0] : im1pos[0] + pcs[0], im1pos[1] : im1pos[1] + pcs[1]] += im1
-    sheetdiv[im1pos[0] : im1pos[0] + pcs[0], im1pos[1] : im1pos[1] + pcs[1]] += np.ones(pcs)
+    sheetdiv[im1pos[0] : im1pos[0] + pcs[0], im1pos[1] : im1pos[1] + pcs[1]] += \
+                                                                        np.ones(pcs)
 
     sheet[im2pos[0] : im2pos[0] + pcs[0], im2pos[1] : im2pos[1] + pcs[1]] += im2
-    sheetdiv[im2pos[0] : im2pos[0] + pcs[0], im2pos[1] : im2pos[1] + pcs[1]] += np.ones(pcs)
+    sheetdiv[im2pos[0] : im2pos[0] + pcs[0], im2pos[1] : im2pos[1] + pcs[1]] += \
+                                                                        np.ones(pcs)
 
     sheetdiv[sheetdiv == 0] = -1
     stitched=sheet / sheetdiv
@@ -235,10 +237,12 @@ def stitch_given_shift(im1, im2,pc):
     sheetdiv = np.zeros(sres)
 
     sheet[im1pos[0] : im1pos[0] + sim1[0], im1pos[1] : im1pos[1] + sim1[1]] += im1
-    sheetdiv[im1pos[0] : im1pos[0] + sim1[0], im1pos[1] : im1pos[1] + sim1[1]] += np.ones(sim1)
+    sheetdiv[im1pos[0] : im1pos[0] + sim1[0], im1pos[1] : im1pos[1] + sim1[1]] += \
+                                                                            np.ones(sim1)
 
     sheet[im2pos[0] : im2pos[0] + sim2[0], im2pos[1] : im2pos[1] + sim2[1]] += im2
-    sheetdiv[im2pos[0] : im2pos[0] + sim2[0], im2pos[1] : im2pos[1] + sim2[1]] += np.ones(sim2)
+    sheetdiv[im2pos[0] : im2pos[0] + sim2[0], im2pos[1] : im2pos[1] + sim2[1]] += \
+                                                                            np.ones(sim2)
 
     sheetdiv[sheetdiv == 0] = -1
     stitched=sheet / sheetdiv
@@ -435,7 +439,8 @@ def align_com_precise(im1, im2,delta=None,show=False,artifacts=None):
 
     if show:
         plt.imshow(pcr[maxpos[0]-delt:maxpos[0]+delt,maxpos[1]-delt:maxpos[1]+delt])
-        plt.plot(compos[1]-(maxpos[1]-delt),compos[0]-(maxpos[0]-delt),'rx',label='center of mass')
+        plt.plot(compos[1]-(maxpos[1]-delt),compos[0]-(maxpos[0]-delt),'rx',
+                 label='center of mass')
         plt.plot(delt,delt,'wx',label='global max')
         plt.plot(-maxpos[1]+pcr.shape[1]//2+delt,-maxpos[0]+pcr.shape[0]//2+delt,'x',c='fuchsia',label='origin')
         plt.legend()
@@ -596,571 +601,6 @@ def _pos_from_pcm(pcm, overlap_limits, mode, tolerance, imdim, rdrift, cdrift):
     return dist0, dist1, pcm[dist0, dist1]
 
 
-#%% relative_stitching_positions
-def relative_stitching_positions(
-    images,
-    tile_dimensions,
-    overlap_rows_cols=[0.25, 0.25],
-    tolerance=0.1,
-    ignore_montage_edges=0,
-    drifts=[[0, 0], [0, 0]],
-    blur=0,
-):
-    # images: list of images as a series of rows from top to bottom 
-    # and within the row from left to right
-    # tile_dimensions: tuple consisting of first number of rows 
-    # and second number of columns
-    # overlap: tuple of values between 0.0 and 1.0 indicating 
-    # the expected relative overlap of pictures
-    # tolerance: relative allowed deviation from the expected overlap
-    # note: all images should have the same resolution
-
-    imdim = images[0].shape
-    overlap_limits = np.zeros([2, 2])
-    overlap_limits[0, 0] = imdim[0] * (overlap_rows_cols[0] - tolerance)
-    overlap_limits[0, 1] = imdim[0] * (overlap_rows_cols[0] + tolerance)
-    overlap_limits[1, 0] = imdim[1] * (overlap_rows_cols[1] - tolerance)
-    overlap_limits[1, 1] = imdim[1] * (overlap_rows_cols[1] + tolerance)
-
-    mask_edgeright = np.ones(imdim)
-    mask_edgeup = np.ones(imdim)
-    if ignore_montage_edges != 0:
-        mask_edgeright[:, -int(ignore_montage_edges * imdim[1]) :] = 0
-        mask_edgeup[: int(ignore_montage_edges * imdim[0]), :] = 0
-
-    # mask areas far from the overlap, to ensure that even if the side 
-    # opposite to the stitching edge
-    # looks similar, the stitching happens on the right side of the image
-    maskleft = np.ones(imdim)
-    maskright = np.ones(imdim)
-    maskup = np.ones(imdim)
-    maskdown = np.ones(imdim)
-    maskup[: int(imdim[0] - 2 * overlap_rows_cols[0] * imdim[0]), :] = 0
-    maskdown[int(2 * overlap_rows_cols[0] * imdim[0]) :, :] = 0
-    maskleft[:, : int(imdim[1] - 2 * overlap_rows_cols[1] * imdim[1])] = 0
-    maskright[:, int(2 * overlap_rows_cols[1] * imdim[1]) :] = 0
-
-    positions = np.zeros(
-        [
-            tile_dimensions[0] * tile_dimensions[1],
-            tile_dimensions[0] * tile_dimensions[1],
-            2,
-        ]
-    )
-    pos_pcms = np.zeros(
-        [
-            tile_dimensions[0] * tile_dimensions[1],
-            tile_dimensions[0] * tile_dimensions[1],
-        ]
-    )
-    neighbours = []
-    # loop checks for each image the relative position of its right and bottom neighour
-    # via the maximum of the phase-correlation-matrix (PCM)
-    for i in range(len(images) - 1):
-        neighbours.append([])
-        if (i + 1) % tile_dimensions[1] == 0:  # no right neighbour at the end of a row
-            # if i%tile_dimensions[1]==0:
-            if (
-                i < (tile_dimensions[0] - 1) * tile_dimensions[1]
-            ):  # no bottom neighbours in the last row
-                j = i + tile_dimensions[1]  # j is the image below
-                if j < len(images):
-                    neighbours[i].append(j)
-                    pcm = phase_correlation(
-                        images[i] * maskup * mask_edgeright,
-                        images[j] * maskdown * mask_edgeright,
-                    )
-                    if blur != 0:
-                        pcm = cv2.blur(pcm, (blur, blur))
-                    dist0, dist1, pcms = _pos_from_pcm(
-                        pcm,
-                        overlap_limits,
-                        "vertical",
-                        tolerance,
-                        imdim,
-                        drifts[1][0],
-                        drifts[1][1],
-                    )
-                    positions[i, j] = dist0, dist1
-                    positions[j, i] = dist0, dist1
-                    pos_pcms[i, j] = pcms
-                    pos_pcms[j, i] = pcms
-
-        else:
-            j = i + 1  # j is the image right
-            if j < len(images):
-                neighbours[i].append(j)
-                if i < tile_dimensions[1]:
-                    pcm = phase_correlation(
-                        images[i] * maskleft * mask_edgeup,
-                        images[j] * maskright * mask_edgeup,
-                    )
-                    if blur != 0:
-                        pcm = cv2.blur(pcm, (blur, blur))
-                else:
-                    pcm = phase_correlation(images[i] * maskleft, images[j] * maskright)
-                    if blur != 0:
-                        pcm = cv2.blur(pcm, (blur, blur))
-                dist0, dist1, pcms = _pos_from_pcm(
-                    pcm,
-                    overlap_limits,
-                    "horizontal",
-                    tolerance,
-                    imdim,
-                    drifts[0][0],
-                    drifts[0][1],
-                )
-                positions[i, j] = dist0, dist1
-                positions[j, i] = dist0, dist1
-                pos_pcms[i, j] = pcms
-                pos_pcms[j, i] = pcms
-
-            if i < (tile_dimensions[0] - 1) * tile_dimensions[1]:
-                j = i + tile_dimensions[1]  # j is the image below
-                if j < len(images):
-                    neighbours[i].append(j)
-                    pcm = phase_correlation(images[i] * maskup, images[j] * maskdown)
-                    if blur != 0:
-                        pcm = cv2.blur(pcm, (blur, blur))
-
-                    dist0, dist1, pcms = _pos_from_pcm(
-                        pcm,
-                        overlap_limits,
-                        "vertical",
-                        tolerance,
-                        imdim,
-                        drifts[1][0],
-                        drifts[1][1],
-                    )
-                    positions[i, j] = dist0, dist1
-                    positions[j, i] = dist0, dist1
-                    pos_pcms[i, j] = pcms
-                    pos_pcms[j, i] = pcms
-
-    return positions, neighbours, pos_pcms
-
-#%% relative_stitching_positions
-def relative_stitching_sift(
-    images,
-    tile_dimensions,
-    overlap_rows_cols=[0.25, 0.25],
-    tolerance=0.1,
-    ignore_montage_edges=0,
-    drifts=[[0, 0], [0, 0]],
-    blur=0,
-):
-    # images: list of images as a series of rows from top to bottom and within the row from left to right
-    # tile_dimensions: tuple consisting of first number of rows and second number of columns
-    # overlap: tuple of values between 0.0 and 1.0 indicating the expected relative overlap of pictures
-    # tolerance: relative allowed deviation from the expected overlap
-    # note: all images should have the same resolution
-
-    imdim = images[0].shape
-    overlap_limits = np.zeros([2, 2])
-    overlap_limits[0, 0] = imdim[0] * (overlap_rows_cols[0] - tolerance)
-    overlap_limits[0, 1] = imdim[0] * (overlap_rows_cols[0] + tolerance)
-    overlap_limits[1, 0] = imdim[1] * (overlap_rows_cols[1] - tolerance)
-    overlap_limits[1, 1] = imdim[1] * (overlap_rows_cols[1] + tolerance)
-
-    mask_edgeright = np.ones(imdim)
-    mask_edgeup = np.ones(imdim)
-    if ignore_montage_edges != 0:
-        mask_edgeright[:, -int(ignore_montage_edges * imdim[1]) :] = 0
-        mask_edgeup[: int(ignore_montage_edges * imdim[0]), :] = 0
-
-    # mask areas far from the overlap, to ensure that even if the side opposite to the stitching edge
-    # looks similar, the stitching happens on the right side of the image
-    maskleft = np.ones(imdim)
-    maskright = np.ones(imdim)
-    maskup = np.ones(imdim)
-    maskdown = np.ones(imdim)
-    maskup[: int(imdim[0] - 2 * overlap_rows_cols[0] * imdim[0]), :] = 0
-    maskdown[int(2 * overlap_rows_cols[0] * imdim[0]) :, :] = 0
-    maskleft[:, : int(imdim[1] - 2 * overlap_rows_cols[1] * imdim[1])] = 0
-    maskright[:, int(2 * overlap_rows_cols[1] * imdim[1]) :] = 0
-
-    positions = np.zeros(
-        [
-            tile_dimensions[0] * tile_dimensions[1],
-            tile_dimensions[0] * tile_dimensions[1],
-            2,
-        ]
-    )
-    pos_pcms = np.zeros(
-        [
-            tile_dimensions[0] * tile_dimensions[1],
-            tile_dimensions[0] * tile_dimensions[1],
-        ]
-    )
-    neighbours = []
-    # loop checks for each image the relative position of its right and bottom neighour
-    # via the maximum of the phase-correlation-matrix (PCM)
-    for i in range(len(images) - 1):
-        neighbours.append([])
-        if (i + 1) % tile_dimensions[1] == 0:  # no right neighbour at the end of a row
-            # if i%tile_dimensions[1]==0:
-            if (
-                i < (tile_dimensions[0] - 1) * tile_dimensions[1]
-            ):  # no bottom neighbours in the last row
-                j = i + tile_dimensions[1]  # j is the image below
-                if j < len(images):
-                    neighbours[i].append(j)
-                    pcm = phase_correlation(
-                        images[i] * maskup * mask_edgeright,
-                        images[j] * maskdown * mask_edgeright,
-                    )
-                    if blur != 0:
-                        pcm = cv2.blur(pcm, (blur, blur))
-                    dist0, dist1, pcms = _pos_from_pcm(
-                        pcm,
-                        overlap_limits,
-                        "vertical",
-                        tolerance,
-                        imdim,
-                        drifts[1][0],
-                        drifts[1][1],
-                    )
-                    positions[i, j] = dist0, dist1
-                    positions[j, i] = dist0, dist1
-                    pos_pcms[i, j] = pcms
-                    pos_pcms[j, i] = pcms
-
-        else:
-            j = i + 1  # j is the image right
-            if j < len(images):
-                neighbours[i].append(j)
-                if i < tile_dimensions[1]:
-                    pcm = phase_correlation(
-                        images[i] * maskleft * mask_edgeup,
-                        images[j] * maskright * mask_edgeup,
-                    )
-                    if blur != 0:
-                        pcm = cv2.blur(pcm, (blur, blur))
-                else:
-                    pcm = phase_correlation(images[i] * maskleft, images[j] * maskright)
-                    if blur != 0:
-                        pcm = cv2.blur(pcm, (blur, blur))
-                dist0, dist1, pcms = _pos_from_pcm(
-                    pcm,
-                    overlap_limits,
-                    "horizontal",
-                    tolerance,
-                    imdim,
-                    drifts[0][0],
-                    drifts[0][1],
-                )
-                positions[i, j] = dist0, dist1
-                positions[j, i] = dist0, dist1
-                pos_pcms[i, j] = pcms
-                pos_pcms[j, i] = pcms
-
-            if i < (tile_dimensions[0] - 1) * tile_dimensions[1]:
-                j = i + tile_dimensions[1]  # j is the image below
-                if j < len(images):
-                    neighbours[i].append(j)
-                    pcm = phase_correlation(images[i] * maskup, images[j] * maskdown)
-                    if blur != 0:
-                        pcm = cv2.blur(pcm, (blur, blur))
-
-                    dist0, dist1, pcms = _pos_from_pcm(
-                        pcm,
-                        overlap_limits,
-                        "vertical",
-                        tolerance,
-                        imdim,
-                        drifts[1][0],
-                        drifts[1][1],
-                    )
-                    positions[i, j] = dist0, dist1
-                    positions[j, i] = dist0, dist1
-                    pos_pcms[i, j] = pcms
-                    pos_pcms[j, i] = pcms
-
-    return positions, neighbours, pos_pcms
-
-
-#%% absolute_stitching_positions
-def absolute_stitching_positions(
-    positions, neighbours, tile_dimensions, pos_pcms, conflict_sol="weighted"
-):
-    # in case of non-matching relative image-positions resulting from different neighbours
-    # the average of the conflicting values is taken
-
-    pos_pcms -= np.min(pos_pcms)
-    pos_pcms += 0.000001
-
-    absolute_positions = np.zeros([tile_dimensions[0], tile_dimensions[1], 2])
-    weights = np.zeros([tile_dimensions[0], tile_dimensions[1], 2])
-    for i in range(len(neighbours)):
-        row0 = i // tile_dimensions[1]
-        column0 = i % tile_dimensions[1]
-
-        for j in neighbours[i]:
-            row1 = j // tile_dimensions[1]
-            column1 = j % tile_dimensions[1]
-
-            if conflict_sol == "last":
-                absolute_positions[row1, column1, 0] += (
-                    absolute_positions[row0, column0, 0] + positions[i, j, 0]
-                )
-                absolute_positions[row1, column1, 1] += (
-                    absolute_positions[row0, column0, 1] + positions[i, j, 1]
-                )
-                break
-
-            if conflict_sol == "weighted":
-                if np.sum(absolute_positions[row0, column0]) == 0:
-                    absolute_positions[row1, column1, 0] += (
-                        absolute_positions[row0, column0, 0] + positions[i, j, 0]
-                    )
-                    absolute_positions[row1, column1, 1] += (
-                        absolute_positions[row0, column0, 1] + positions[i, j, 1]
-                    )
-                    weights[row1, column1, 0] += pos_pcms[i, j]
-                    weights[row1, column1, 1] += pos_pcms[i, j]
-                else:
-                    absolute_positions[row1, column1, 0] = (
-                        absolute_positions[row1, column1, 0] * weights[row1, column1, 0]
-                        + (absolute_positions[row0, column0, 0] + positions[i, j, 0])
-                        * pos_pcms[i, j]
-                    )
-                    absolute_positions[row1, column1, 1] = (
-                        absolute_positions[row1, column1, 1] * weights[row1, column1, 1]
-                        + (absolute_positions[row0, column0, 1] + positions[i, j, 1])
-                        * pos_pcms[i, j]
-                    )
-                    weights[row1, column1, 0] += pos_pcms[i, j]
-                    weights[row1, column1, 1] += pos_pcms[i, j]
-                    absolute_positions[row1, column1] /= weights[row1, column1]
-
-            else:
-                if sum(absolute_positions[row1, column1]) == 0:
-                    average_division = 1
-                else:
-                    average_division = 2
-
-                absolute_positions[row1, column1, 0] += (
-                    absolute_positions[row0, column0, 0] + positions[i, j, 0]
-                )
-                absolute_positions[row1, column1, 1] += (
-                    absolute_positions[row0, column0, 1] + positions[i, j, 1]
-                )
-
-                absolute_positions[row1, column1] /= average_division
-
-    # shift to have only positive positions
-    absolute_positions[:, :, 0] -= np.min(absolute_positions[:, :, 0])
-    absolute_positions[:, :, 1] -= np.min(absolute_positions[:, :, 1])
-
-    return absolute_positions.astype(int)
-
-
-#%% contrast_correction
-def contrast_correction(images):
-    """
-    normalize the brightness of all pictures in the series, by multiplying each image
-    with a factor, so that the maximum of the pixel-value-histogram of every image is
-    at the same position
-
-    Args:
-        images (list of images): 
-            input.
-
-    Returns:
-        images_corrected (list of images): 
-            output.
-
-    """
-    # 
-    imdim = images[0].shape
-    hists = []
-    for i in range(len(images)):
-        flatim = np.reshape(images[i], imdim[0] * imdim[1])
-        vals, bins = np.histogram(flatim, 100)
-        maxpos = np.argmax(vals[5:]) + 5
-        brightness = (bins[maxpos] + bins[maxpos + 1]) / 2
-        hists.append(brightness)
-
-    ref = np.mean(hists)
-    images_corrected = []
-    for i in range(len(images)):
-        images_corrected.append(images[i] * ref / hists[i])
-    return images_corrected
-
-
-#%% drift_correction
-def drift_correction(images, tile_dimensions, overlap_rows_cols, tolerance=0.1):
-    # images: list of images as a series of rows from top to bottom and within the row from left to right
-    # tile_dimensions: tuple consisting of first number of rows and second number of columns
-    # overlap: tuple of values between 0.0 and 1.0 indicating the expected relative overlap of pictures
-    # tolerance: relative allowed deviation from the expected overlap
-    # note: all images should have the same resolution
-
-    imdim = images[0].shape
-
-    overlap_limits = np.zeros([2, 2])
-    overlap_limits[0, 0] = imdim[0] * (overlap_rows_cols[0] - tolerance)
-    overlap_limits[0, 1] = imdim[0] * (overlap_rows_cols[0] + tolerance)
-    overlap_limits[1, 0] = imdim[1] * (overlap_rows_cols[1] - tolerance)
-    overlap_limits[1, 1] = imdim[1] * (overlap_rows_cols[1] + tolerance)
-
-    positions = np.zeros(
-        [
-            tile_dimensions[0] * tile_dimensions[1],
-            tile_dimensions[0] * tile_dimensions[1],
-            2,
-        ]
-    )
-    pos_pcms = np.zeros(
-        [
-            tile_dimensions[0] * tile_dimensions[1],
-            tile_dimensions[0] * tile_dimensions[1],
-        ]
-    )
-
-    # loop checks for each image the relative position of its right and bottom neighour
-    # via the maximum of the phase-correlation-matrix (PCM)
-    for i in range(len(images) - 1):
-
-        if (i + 1) % tile_dimensions[1] == 0:  # no right neighbour at the end of a row
-            # if i%tile_dimensions[1]==0:
-            if (
-                i < (tile_dimensions[0] - 1) * tile_dimensions[1]
-            ):  # no bottom neighbours in the last row
-                j = i + tile_dimensions[1]  # j is the image below
-                if j < len(images):
-                    pcm = phase_correlation(images[i], images[j])
-
-                    dist0, dist1, pcms = _pos_from_pcm(
-                        pcm, overlap_limits, "vertical", tolerance, imdim, 0, 0
-                    )
-                    positions[i, j] = dist0, dist1
-                    positions[j, i] = dist0, dist1
-                    pos_pcms[i, j] = pcms
-                    pos_pcms[j, i] = pcms
-
-        else:
-            j = i + 1  # j is the image right
-            if j < len(images):
-                if i < tile_dimensions[1]:
-                    pcm = phase_correlation(images[i], images[j])
-                else:
-                    pcm = phase_correlation(images[i], images[j])
-                dist0, dist1, pcms = _pos_from_pcm(
-                    pcm, overlap_limits, "horizontal", tolerance, imdim, 0, 0
-                )
-                positions[i, j] = dist0, dist1
-                positions[j, i] = dist0, dist1
-                pos_pcms[i, j] = pcms
-                pos_pcms[j, i] = pcms
-
-            if i < (tile_dimensions[0] - 1) * tile_dimensions[1]:
-                j = i + tile_dimensions[1]  # j is the image below
-                if j < len(images):
-                    pcm = phase_correlation(images[i], images[j])
-
-                    dist0, dist1, pcms = _pos_from_pcm(
-                        pcm, overlap_limits, "vertical", tolerance, imdim, 0, 0
-                    )
-                    positions[i, j] = dist0, dist1
-                    positions[j, i] = dist0, dist1
-                    pos_pcms[i, j] = pcms
-                    pos_pcms[j, i] = pcms
-
-    rightmoves = np.diag(pos_pcms, 1)
-    downmoves = np.diag(pos_pcms, tile_dimensions[1])
-    right0 = np.argmax(rightmoves)
-    down0 = np.argmax(downmoves)
-    right1 = right0 + 1
-    down1 = down0 + tile_dimensions[1]
-
-    drift_down, drift_right = np.zeros(2), np.zeros(2)
-
-    expected_row_pos = imdim[0] - imdim[0] * overlap_rows_cols[0]
-    expected_col_pos = imdim[1] - imdim[1] * overlap_rows_cols[1]
-    drift_down[0] = positions[down0, down1, 0] - expected_row_pos
-    drift_down[1] = positions[down0, down1, 1]
-
-    drift_right[0] = positions[right0, right1, 0]
-    drift_right[1] = positions[right0, right1, 1] - expected_col_pos
-
-    drifts = []
-    drifts.append(drift_right)
-    drifts.append(drift_down)
-
-    alldrifts_right = []
-    alldrifts_down = []
-    for i in range(len(rightmoves)):
-        if rightmoves[i] == 0:
-            pass
-        else:
-            adr0 = positions[i, i + 1, 0]
-            adr1 = positions[i, i + 1, 1] - expected_row_pos
-            alldrifts_right.append([adr0, adr1])
-    for i in range(len(downmoves)):
-        add0 = positions[i, i + tile_dimensions[1], 0] - expected_col_pos
-        add1 = positions[i, i + tile_dimensions[1], 1]
-        alldrifts_down.append([add0, add1])
-
-    return drifts, alldrifts_right, alldrifts_down
-
-
-#%% stitch_grid
-def stitch_grid(images, absolute_positions, tile_dimensions, mask):
-    # to ensure a smooth transition between two pictures, a weighted sum in the overlap-region is executed
-    # the weights are given by mask
-
-    imdim = images[0].shape
-    vmax = np.max(absolute_positions[:, :, 0]) + imdim[0]
-    hmax = np.max(absolute_positions[:, :, 1]) + imdim[1]
-
-    division = np.zeros([vmax, hmax])  # ,dtype=np.double)
-    montage = np.zeros([vmax, hmax])  # ,dtype=np.uint16)
-
-    for i in range(len(images)):
-        row = i // tile_dimensions[1]
-        column = i % tile_dimensions[1]
-        v0 = absolute_positions[row, column, 0]
-        v1 = absolute_positions[row, column, 0] + imdim[0]
-        h0, h1 = (
-            absolute_positions[row, column, 1],
-            absolute_positions[row, column, 1] + imdim[1],
-        )
-        montage[v0:v1, h0:h1] += images[i] * mask
-        division[v0:v1, h0:h1] += mask
-
-    division[division == 0] = 1.0
-    montage /= division
-    montage -= np.min(montage)
-    return montage / np.max(montage)
-
-
-#%% optimize_images
-def optimize_images(images, background_division="mask"):
-    # to achieve homogeneous brightness at non-optimal lightning,
-    # the images are normalized (divided by) mask, a blurred median-image of the series
-    # weighting areas differently so,
-    # when later overlapping image-regions are summed, mask ensures that
-    # the influence of a well illuminated area is bigger, than a poorly illuminated area
-
-    immed = np.median(images, axis=0)
-
-    images_mad = np.abs(images - immed)
-    mad = np.median(images_mad, axis=0)
-    madnorm = mad / np.max(mad)
-
-    mask = cv2.blur(immed, (11, 11))
-    mask = cv2.blur(mask, (31, 31))
-    mask = cv2.blur(mask, (51, 51))
-    mask = cv2.blur(mask, (71, 71))
-
-    if background_division == "mask":
-        images_c = images / mask
-    elif background_division == "median":
-        images_c = np.clip((images / immed / 2), 0, 1) * 255
-        images_c = images_c.astype(np.uint8)
-
-    return images_c, immed, madnorm, mask
 
 
 #%% two_imshow
@@ -1374,9 +814,12 @@ def manual_correction(images, absolute_positions, tile_dimensions, mask, zoom=0.
         + "for moving to the next image, when satisfied,\n"
         + "and to end the program \n(when pressing enter after the last image).\n"
         + "\nPress backspace to go back to a previous image.\n"
-        + "\nUse left, right, up and down arrow keys to position \nthe image marked by red + showing the corners.\n"
-        + "\nPress 'b' to switch between big steps (10 pixels) and normal steps (1 pixel)"
-        + "\nFor closing the program at any point press esc \n(to reset internal counters).",
+        + "\nUse left, right, up and down arrow keys to position \nthe image marked "
+        + "by red + showing the corners.\n"
+        + "\nPress 'b' to switch between big steps (10 pixels) "
+        + "and normal steps (1 pixel)"
+        + "\nFor closing the program at any point press esc \n"
+        +"(to reset internal counters).",
     )
     plt.show()
 
@@ -1517,12 +960,14 @@ def align_images(im1s, im2, p1s, p2, verbose=False):
     
     if single_image:
         if verbose:
-            return im1res[0], img2Reg, matrices, reswidth, resheight, width_shift, height_shift
+            return im1res[0], img2Reg, matrices, reswidth, \
+                    resheight, width_shift, height_shift
         else:
             return im1res[0], img2Reg
     else:
         if verbose:
-            return im1res, img2Reg, matrices, reswidth, resheight, width_shift, height_shift
+            return im1res, img2Reg, matrices, reswidth, \
+                    resheight, width_shift, height_shift
         else:
             return im1res, img2Reg
 

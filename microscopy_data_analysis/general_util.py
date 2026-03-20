@@ -2,12 +2,18 @@
 submodule covering some 1D, 2D, mixed and other functions
 """
 
+import json  #just for custom colormap
 import os
 
 import cv2
+import ipywidgets  #just for custom colormap
+import matplotlib as mpl  #just for custom colormap
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.special
+from IPython.display import display  #just for custom colormap
+from ipywidgets import widgets  #just for custom colormap
+from matplotlib.ticker import MultipleLocator  #just for custom colormap
 
 #import copy
 from numba import njit
@@ -19,15 +25,19 @@ from .image_processing import img_make_square
 #%%
 
 
-def split_function_into_equal_area_parts(func,number_of_parts,prec=10**-6,limits=[-np.inf,np.inf],
+def split_function_into_equal_area_parts(func,number_of_parts,prec=10**-6,limits=None,
                                             printing=False,max_iterations=1000):
     """calculate the split positions to divide a function into equal area parts, 
     best suited for smooth functions
     """
+    if limits is None:
+        limits=[-np.inf,np.inf]
     total_area_first,error=quad(func,limits[0],limits[1]) #get total area
     quad_abs_prec=0.5*prec /number_of_parts#*total_area_first/ 
                                         #determine absolute precision for integration
-    adj_func=lambda x: func(x)/total_area_first
+    #adj_func=lambda x: func(x)/total_area_first
+    def adj_func(x):
+        return func(x)/total_area_first
     total_area,error=quad(adj_func,limits[0],limits[1],epsabs=quad_abs_prec)
 
     desired_area=total_area/number_of_parts
@@ -46,7 +56,7 @@ def split_function_into_equal_area_parts(func,number_of_parts,prec=10**-6,limits
     cuts.append(lower_cut)
     areas.append(lower_area)
     start_step_size=1
-    for i in range(number_of_parts-2):
+    for _ in range(number_of_parts-2): #_ =i
         cut,area=find_next_cut(adj_func,cuts[-1],desired_area,tolerance_area,quad_abs_prec,max_iterations,step_size=start_step_size)
         
         areas.append(area)
@@ -99,14 +109,6 @@ def find_next_cut(func,firstcut,desired_area,tolerance_area,quad_abs_prec,
 
 #%%
 
-import json
-
-import ipywidgets
-import matplotlib as mpl
-from IPython.display import display
-from ipywidgets import widgets
-from matplotlib.ticker import MultipleLocator
-
 
 def _cmap_from_setpoints(cmapname,setpoints):
     cm = mpl.colormaps[cmapname]
@@ -115,10 +117,12 @@ def _cmap_from_setpoints(cmapname,setpoints):
     mean_diff=cvals[1]-cvals[0]
     colors_per_set=int(np.round(512/(n-1)))
     
-    number_of_colors=int(np.round((setpoints[1]-setpoints[0])/mean_diff * colors_per_set))
+    number_of_colors=int(np.round(
+                        (setpoints[1]-setpoints[0])/mean_diff * colors_per_set))
     newcolors=cm(np.linspace(cvals[0],cvals[1],number_of_colors))
     for i in range(1,n-1):
-        number_of_colors=int(np.round((setpoints[i+1]-setpoints[i])/mean_diff * colors_per_set))
+        number_of_colors=int(np.round(
+                        (setpoints[i+1]-setpoints[i])/mean_diff * colors_per_set))
         appendcolors=cm(np.linspace(cvals[i],cvals[i+1],number_of_colors))
         newcolors=np.vstack((newcolors,appendcolors))
     return mpl.colors.ListedColormap(newcolors)

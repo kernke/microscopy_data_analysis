@@ -295,7 +295,8 @@ def asym_pseudo_voigt(x,x0,A,eta,gamma_0,a):
     """
     xcentered=x-x0
     gamma=2*gamma_0/(1+np.exp(a*xcentered))
-    gauss= 1/gamma* np.sqrt(4*np.log(2)/np.pi) *np.exp(-4*np.log(2) *(xcentered/gamma)**2)
+    gauss= 1/gamma* np.sqrt(4*np.log(2)/np.pi) \
+            *np.exp(-4*np.log(2) *(xcentered/gamma)**2)
     lorentz=(2/(np.pi*gamma ))/(1+4*(xcentered/gamma)**2)
     voigt= ((1-eta)*gauss+eta*lorentz)*A
     return voigt
@@ -424,7 +425,8 @@ def asym_pseudo_voigt_table(params,show=True,verbose=True):
         res[:,3]=[asym_pseudo_voigt_peakheight(*elem[1:]) for elem in params]
         res[:,6]=(1-res[:,4])*100
         res[:,5]=res[:,4]*100
-        res[:,9]=[asym_pseudo_voigt_normalized_asym(*elem[-2:][::-1]) for elem in params]
+        res[:,9]=[asym_pseudo_voigt_normalized_asym(*elem[-2:][::-1]) \
+                    for elem in params]
         res[:,10]=res[:,0]-res[:,1]
         
         cols=[r"$x_0$",r"$x_{center}$",r"amplitude $A$","peakheight",r"$\eta$",
@@ -732,27 +734,27 @@ def calculate_FWHM(x_data,y_data,superres=2):
     """
     x=np.linspace(x_data[0],x_data[-1],int(len(x_data)*superres))
     
-    I=np.interp(x,x_data,y_data)
+    bigI=np.interp(x,x_data,y_data)
     
-    H=np.max(I)/2
-    maxpos=np.argmax(I)
+    H=np.max(bigI)/2
+    maxpos=np.argmax(bigI)
 
     previous_point_was_below=True
     lefts=[]
     for i in range(maxpos):
-        if I[i]>=H and previous_point_was_below:   #check over to get posi of FWHM
+        if bigI[i]>=H and previous_point_was_below:   #check over to get posi of FWHM
             lefts.append(x[i])
             previous_point_was_below=False
-        elif I[i] < H and not previous_point_was_below:
+        elif bigI[i] < H and not previous_point_was_below:
             previous_point_was_below=True
             
     previous_point_was_below=False
     rights=[]
-    for i in range(maxpos,len(I)):
-        if I[i]<=H and not previous_point_was_below:
+    for i in range(maxpos,len(bigI)):
+        if bigI[i]<=H and not previous_point_was_below:
             rights.append(x[i])
             previous_point_was_below=True
-        elif I[i] > H and previous_point_was_below:
+        elif bigI[i] > H and previous_point_was_below:
             previous_point_was_below=False
     
     if len(lefts)==0 or len(rights)==0:
@@ -916,10 +918,10 @@ def peak_fit(y_data,x_data=None,roi=None,plot=False,
     
 #%% sequential_peak_fit
 #TODO output for other functions, not only asym pseudo Voigt
-def sequential_peak_fit(y_data,x_data=None,regions_of_interest=[],
+def sequential_peak_fit(y_data,x_data=None,regions_of_interest=None,
                         plot=False,verbose=False):
     """
-    fit multiple peaks succesively in descending order with respect to their peakheight. 
+    fit multiple peaks succesively in descending order with respect to their peakheight.
     the number of peaks is given by the number of tuples for regions_of_interest
 
     Args:
@@ -953,6 +955,8 @@ def sequential_peak_fit(y_data,x_data=None,regions_of_interest=[],
             fitting curve, using asym_pseudo_voigt for all peaks.
 
     """
+    if regions_of_interest is None:
+        regions_of_interest=[]
     if x_data is None:
         x=np.arange(len(y_data))
         rois=regions_of_interest
@@ -1057,7 +1061,7 @@ def multi_ident_func_fit(func,p0_lists,x,y,single_upper_bounds=None,
             
     ubs=[]
     lbs=[]
-    for i in range(n):
+    for _ in range(n): #_=i
         ubs+=single_upper_bounds
         lbs+=single_lower_bounds
     bounds=(lbs,ubs)
@@ -1067,7 +1071,11 @@ def multi_ident_func_fit(func,p0_lists,x,y,single_upper_bounds=None,
         for j in i:
             flat_p0.append(j)
 
-    peak_func=lambda x,*params: np.sum([func(x,*params[i*subn:(i+1)*subn]) for i in range(n)],axis=0) 
+    peak_func=lambda x,*params: np.sum(
+     [func(x,*params[i*subn:(i+1)*subn]) for i in range(n)],axis=0) 
+
+    #def peak_func(x,*params):
+    #    return np.sum([func(x,*params[i*subn:(i+1)*subn]) for i in range(n)],axis=0) 
 
     pars,cov=curve_fit(peak_func,x,y,p0=flat_p0,bounds=bounds)
 
