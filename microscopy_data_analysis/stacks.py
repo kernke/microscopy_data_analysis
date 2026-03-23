@@ -350,6 +350,9 @@ class image_stack:
                 new_dset_name = dset_name
             else:
                 newshape = f[dset_name].shape
+                if self.overwrite:
+                    if new_dset_name in f:
+                        del f[new_dset_name]
                 f.create_dataset(new_dset_name, newshape, self.dtype, 
                             chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
@@ -489,6 +492,9 @@ class image_stack:
                 if new_dset_name is None:
                     new_dset_name = dset_name
                 else:
+                    if self.overwrite:
+                        if new_dset_name in f:
+                            del f[new_dset_name]                    
                     f.create_dataset(new_dset_name, newshape, dtype="f4", 
                             chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
@@ -506,6 +512,9 @@ class image_stack:
                 if new_dset_name is None:
                     new_dset_name = dset_name
                 else:
+                    if self.overwrite:
+                        if new_dset_name in f:
+                            del f[new_dset_name]
                     f.create_dataset(
                                 new_dset_name,
                                 shape=(n_rows, n_cols),
@@ -578,6 +587,9 @@ class image_stack:
                 if new_dset_name is None:
                     new_dset_name = dset_name
                 else:
+                    if self.overwrite:
+                        if new_dset_name in f:
+                            del f[new_dset_name]
                     f.create_dataset(new_dset_name, newshape, dtype="f4", 
                             chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
@@ -594,6 +606,9 @@ class image_stack:
                 if new_dset_name is None:
                     new_dset_name = dset_name
                 else:
+                    if self.overwrite:
+                        if new_dset_name in f:
+                            del f[new_dset_name]
                     f.create_dataset(
                                 new_dset_name,
                                 shape=(n_rows, n_cols),
@@ -775,6 +790,9 @@ class image_stack:
             if new_dset_name is None:
                 new_dset_name = dset_name
             else:
+                if self.overwrite:
+                    if new_dset_name in f:
+                        del f[new_dset_name]
                 f.create_dataset(new_dset_name, newshape, dtype="f4", 
                             chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
 
@@ -783,7 +801,7 @@ class image_stack:
             for i in tqdm(range(len(self.img_list)), disable=self.no_print):
                 f[new_dset_name][i, :, :] = f[dset_name][i, :, :] / flat_field
 
-    def convert_to_uint16(self, real_zero=False):  # ,newdtype=np.uint16):
+    def convert_to_uint16(self, real_zero=False,dset_name="data"):
         """
         save uint16 dataset in h5
         """
@@ -791,7 +809,7 @@ class image_stack:
         img_mins = np.zeros(len(self.img_list))
         with h5py.File(self.modifiable_file, "r") as f:
             for i in range(len(self.img_list)):
-                corr = f["data_corrected"][i, :, :]
+                corr = f[dset_name][i, :, :]
                 img_maxs[i] = np.max(corr)
                 img_mins[i] = np.min(corr)
 
@@ -807,7 +825,7 @@ class image_stack:
                 tf.create_dataset("data", newshape, np.uint16, 
                             chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
                 for i in range(len(self.img_list)):
-                    corr = ((f["data_corrected"][i, :, :] - img_min) / div) * 65535
+                    corr = ((f[dset_name][i, :, :] - img_min) / div) * 65535
                     tf["data"][i, :, :] = corr.astype(np.uint16)
             if real_zero:
                 newname = self.modifiable_file[:-3] + "_real_zero.h5"
@@ -815,7 +833,7 @@ class image_stack:
                     tf.create_dataset("data", newshape, np.uint16, 
                             chunks=(1, self.dimensions[0][0], self.dimensions[0][1]))
                     for i in range(len(self.img_list)):
-                        corr = (f["data_corrected"][i, :, :] / img_max) * 65535
+                        corr = (f[dset_name][i, :, :] / img_max) * 65535
                         tf["data"][i, :, :] = corr.astype(np.uint16)
 
         os.remove(self.modifiable_file)
@@ -1327,6 +1345,10 @@ class image_stack:
         with h5py.File(h5file, "a") as f:
 
             if division_needed:
+                if self.overwrite:
+                    if "division_mask" in f:
+                        del f["division_mask"]
+
                 division_mask = f.create_dataset(
                             "division_mask",
                             shape=image_dims,
@@ -1337,6 +1359,10 @@ class image_stack:
 
 
             if boolean_mask:
+                if self.overwrite:
+                    if "boolean_mask" in f:
+                        del f["boolean_mask"]
+
                 bmask = f.create_dataset(
                             "boolean_mask",
                             shape=image_dims,
@@ -1345,6 +1371,9 @@ class image_stack:
                             fillvalue=False
                         )
 
+            if self.overwrite:
+                if "map" in f:
+                    del f["map"]
             image = f.create_dataset(
                         "map",
                         shape=image_dims,
@@ -1639,6 +1668,10 @@ class image_stack:
                 if new_dset_name is None:
                     new_dset_name = dset_name
                 else:
+                    if self.overwrite:
+                        if new_dset_name in f:
+                            del f[new_dset_name]
+
                     f.create_dataset(new_dset_name, newshape, dtype="f4", 
                                      chunks=(1, self.dimensions[0][0], 
                                              self.dimensions[0][1]))

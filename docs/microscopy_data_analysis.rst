@@ -12,7 +12,6 @@ microscopy\_data\_analysis.data\_formats\_io module
    :undoc-members:
    :show-inheritance:
 
-
 microscopy\_data\_analysis.general\_util module
 ------------------------------------------------
 
@@ -21,26 +20,10 @@ microscopy\_data\_analysis.general\_util module
    :undoc-members:
    :show-inheritance:
 
-microscopy\_data\_analysis.h5\_util module
--------------------------------------------
-
-.. automodule:: microscopy_data_analysis.h5_util
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-microscopy\_data\_analysis.image\_aligning module
+microscopy\_data\_analysis.stacks module
 --------------------------------------------------
 
-.. automodule:: microscopy_data_analysis.image_aligning
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-microscopy\_data\_analysis.stitching module
---------------------------------------------------
-
-.. automodule:: microscopy_data_analysis.stitching
+.. automodule:: microscopy_data_analysis.stacks
    :members:
    :undoc-members:
    :show-inheritance:
