@@ -11,5 +11,5 @@ from .image_processing import *
 from .line_analysis import *
 from .line_detection import *
 from .peak_fitting import *
-from .stitching import *
+from .stacks import *
 from .visualisation import *
