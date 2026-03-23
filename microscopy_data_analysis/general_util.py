@@ -22,6 +22,35 @@ from skimage.draw import circle_perimeter, disk, line_aa
 
 from .image_processing import img_make_square
 
+
+#%% max_from_2d
+def max_from_2d(A):
+    """
+    get the position and value of the maximum from a matrix or image
+
+    Args:
+        A (MxN array_like): 
+            input 2D-signal.
+
+    Returns:
+        maximum_position (tuple): 
+            containing two integers.
+        
+        maximum_value (scalar): 
+            datatype depending on the input.
+
+    """
+
+    dist = np.argmax(A)
+    dist1 = dist % A.shape[1]
+    dist0 = dist // A.shape[1]
+
+    maximum_position=np.array([dist0, dist1])
+    maximum_value=A[dist0,dist1]
+    
+    return maximum_position,maximum_value
+
+
 #%%
 
 

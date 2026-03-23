@@ -11,27 +11,31 @@ from scipy.optimize import least_squares
 from scipy.sparse import lil_matrix
 from tqdm import tqdm
 
-from .image_aligning import img_padding_attenuation, max_from_2d, phase_correlation
+from .general_util import max_from_2d
+from .image_aligning import img_correlation, img_padding_attenuation
 from .image_processing import img_to_uint8
 
 
-class stack_and_stitching_object:
+class image_stack:
+    """class to handle stacks of images"""
     def __init__(self, mode="storage", no_print=False):
         """
         Object to handle large stacks (potentially larger than size of RAM) 
         for background subtraction, shift correction or stitching 
         
         Args:
-            mode (string): 'storage' only single images are loaded into RAM 
-            when needed 
-            ('storage' supports images as .tif, .png ... 
-            or as multiple files in .h5 or as datacube in .h5)
-            The mode 'memory' can be used, for small image series, 
-            that are already being loaded fully into RAM
-            Defaults to 'storage' 
-            
-            no_print (bool): set to 'True' for silent execution
-            Defaults to 'False'
+            mode (string): 
+                'storage' only single images are loaded into RAM 
+                when needed 
+                ('storage' supports images as .tif, .png ... 
+                or as multiple files in .h5 or as datacube in .h5)
+                The mode 'memory' can be used, for small image series, 
+                that are already being loaded fully into RAM
+                Defaults to 'storage' 
+                
+            no_print (bool): 
+                set to 'True' for silent execution
+                Defaults to 'False'
         """
         self.mode = mode
         self.no_print = no_print
@@ -54,6 +58,7 @@ class stack_and_stitching_object:
                 "via 'set_img_list'")
 
     def info(self):
+        """print info"""
         print("General conditions: ")
         print("All images of the series are assumed, to have no rotation and " \
         "same pixel size and same dimensions.")
@@ -65,8 +70,8 @@ class stack_and_stitching_object:
         Set the path to either an h5-file or a folder containing the images
 
         Args:
-            path_string (string): looking like, for example: 
-            'folderA/data.h5' or 'folderB'
+            path_string (string): 
+                looking like, for example: 'folderA/data.h5' or 'folderB'
         """
         self.directory = path_string
         if path_string[-3:] == ".h5":
@@ -86,8 +91,9 @@ class stack_and_stitching_object:
         (for example: 16 x 1024 x 1024)
         
         Args:
-            dataset_name (string): name (h5 internal path) of the dataset
-            could look like for example: 'sampleA/data' or just 'images'
+            dataset_name (string): 
+                name (h5 internal path) of the dataset
+                could look like for example: 'sampleA/data' or just 'images'
         """
         self.mode = "h5_datacube"
         self.dataset_name = dataset_name
@@ -100,16 +106,18 @@ class stack_and_stitching_object:
         Change source images of the stack 
         
         Args:
-            mode (string): 'storage' only single images are loaded into RAM 
-            when needed 
-            ('storage' supports images as .tif, .png ... 
-            or as multiple files in .h5 or as datacube in .h5)
-            The mode 'memory' can be used, for small image series, 
-            that are already being loaded fully into RAM
-            Defaults to 'storage' 
-            
-            no_print (bool): set to 'True' for silent execution
-            Defaults to 'False'
+            mode (string): 
+                'storage' only single images are loaded into RAM 
+                when needed 
+                ('storage' supports images as .tif, .png ... 
+                or as multiple files in .h5 or as datacube in .h5)
+                The mode 'memory' can be used, for small image series, 
+                that are already being loaded fully into RAM
+                Defaults to 'storage' 
+                
+            no_print (bool): 
+                set to 'True' for silent execution
+                Defaults to 'False'
         """
         self.mode = mode
         self.directory = None
@@ -131,8 +139,8 @@ class stack_and_stitching_object:
 
         Args:
             img_list (list of strings or list of arrays): 
-            corresponding to either paths within the file-system or the h5-hierachy 
-            or in case of mode='memory' a list containing the actual images 
+                corresponding to either paths within the file-system or the h5-hierachy 
+                or in case of mode='memory' a list containing the actual images 
         """
         if self.directory is None:
             self.h5_mode = False
@@ -145,11 +153,13 @@ class stack_and_stitching_object:
         Load the requested image into RAM and return it
 
         Args:
-            index (int): index of the image in 'img_list'
+            index (int): 
+                index of the image in 'img_list'
 
         Returns
         -------
-            img (array): requested image
+            img (array): 
+                requested image
         """
         if self.images_from == "original":
             if self.mode == "memory":
@@ -173,8 +183,9 @@ class stack_and_stitching_object:
         Set the estimated x and y positions of the images for stitching
         
         Args:
-            postions (array_like or list of tuples): postions containing x,y
-            either as array with shape (N,2) or list of tuples
+            postions (array_like or list of tuples): 
+                postions containing x,y
+                either as array with shape (N,2) or list of tuples
         """
         self.positions = positions
 
@@ -184,7 +195,8 @@ class stack_and_stitching_object:
         corresponding to positions ('set_positions')
 
         Args:
-            units_per_pixel (float): scalar value
+            units_per_pixel (float): 
+                scalar value
         """
         self.units_per_pixel = units_per_pixel
 
@@ -217,8 +229,9 @@ class stack_and_stitching_object:
         Determine where 'get_img' takes an image from
 
         Args:
-            source (string): source either corresponds to 'original' 
-            or to the dataset name (for example: 'data') of the modifiable h5-file
+            source (string): 
+                source either corresponds to 'original' 
+                or to the dataset name (for example: 'data') of the modifiable h5-file
         """
         self.images_from = source
 
@@ -227,9 +240,10 @@ class stack_and_stitching_object:
         set the mode for overwriting (just inside the modifiable dataset)
 
         Args:
-            overwrite (bool): set to 'False' to make sure that datasets in the
-            modifiabel h5-file are conserved
-            Defaults to 'True'
+            overwrite (bool): 
+                set to 'False' to make sure that datasets in the
+                modifiabel h5-file are conserved
+                Defaults to 'True'
         """
         self.overwrite=overwrite
 
@@ -238,8 +252,9 @@ class stack_and_stitching_object:
         Prevent or enable print output
 
         Args:
-            no_print (bool): set to 'True' for silent execution 
-            Defaults to 'False'
+            no_print (bool): 
+                set to 'True' for silent execution 
+                Defaults to 'False'
         """
         self.no_print = no_print
 
@@ -248,13 +263,17 @@ class stack_and_stitching_object:
         Exchange the image with given index in the modifiable dataset
 
         Args:
-            index (int): index corresponding to the image be changed
+            index (int): 
+                index corresponding to the image be changed
 
-            img (array): new image that exchanges the old one
+            img (array): 
+                new image that exchanges the old one
 
-            filename (string, optional): name of the h5-file
+            filename (string, optional): 
+                name of the h5-file
 
-            dsetname (string, optional): name of/path to the dataset inside the h5-file
+            dsetname (string, optional): 
+                name of/path to the dataset inside the h5-file
         """
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
@@ -268,16 +287,19 @@ class stack_and_stitching_object:
         Create an h5 file containing the data as 3D-dataset
 
         Args:
-            filename (string): name of the h5-file
+            filename (string): 
+                name of the h5-file
 
-            dset_name (string): name or internal path to the dataset
+            dset_name (string): 
+                name or internal path to the dataset
 
-            force_dtype (bool): set to 'True' to not change the datatype,
-            otherwise Float32 is chosen for best compatibility with functions 
-            acting on the data
-            (datatype of a created dataset can not be changed -> another duplicate 
-            dataset necessary for change)
-            Defaults to 'False'
+            force_dtype (bool): 
+                set to 'True' to not change the datatype,
+                otherwise Float32 is chosen for best compatibility with functions 
+                acting on the data
+                (datatype of a created dataset can not be changed -> another duplicate 
+                dataset necessary for change)
+                Defaults to 'False'
         """
         if not self.no_print:
             print("With 'use_images_from' the output of 'get_img' can be set to " \
@@ -308,6 +330,19 @@ class stack_and_stitching_object:
                 f[dset_name][i, :, :] = img
 
     def subtract_dark_field(self, dark_field, dset_name="data", new_dset_name=None):
+        """
+        substract value or array from whole stack
+
+        Args:
+            dark_field (array_like or float):
+                scalar value or image for subtraction
+
+            dset_name (string):
+                source of data
+            
+            new_dset_name (string):
+                target of data
+        """
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
@@ -324,6 +359,31 @@ class stack_and_stitching_object:
                                             f[dset_name][i, :, :] - dark_field, 0)
 
     def stats(self, histogram=True, histo_levels=100, dset_name=None, mask=None):
+        """
+        get statistics from a stack or a tiled image, 
+        obtain minimum, maximum and histogram
+        
+        Args:
+            histogram (bool):
+                set to 'False' for faster calculation 
+                when only minimum and maximum are needed
+                Defaults to 'True'
+
+            histo_levels (int>1):
+                number of levels of the histogram
+                (leading to histo_levels + 1 bin borders)
+                Defaults to 100 
+
+        Returns:
+            minimum (float):
+                global minimum of all images of stack or full tiled image
+            maximum (float):
+                global maximum of all images of stack or full tiled image
+            bins (array_like):
+                borders of the bins --> histo_levels +1 values
+            histogram (array_like):
+                count of each bin
+        """
         stack_max = -np.inf
         stack_min = np.inf
         easy_iterate = dset_name is None
@@ -350,7 +410,7 @@ class stack_and_stitching_object:
                     hist, new_bins = np.histogram(np.ravel(self.get_img(i)), 
                                                   bins=bin_edges)
                     cumulative += hist
-                return stack_min, stack_max, bin_edges, hist
+                return stack_min, stack_max, bin_edges, cumulative
             else:
                 return stack_min, stack_max
         else:
@@ -395,11 +455,31 @@ class stack_and_stitching_object:
                                                               bins=bin_edges)
                             cumulative += hist
 
-                    return stack_min, stack_max, bin_edges, hist
+                    return stack_min, stack_max, bin_edges, cumulative
                 else:
                     return stack_min, stack_max
 
-    def clip(self, vmin, vmax, dset_name="data", new_dset_name=None):
+    def clip(self, vmin=-np.inf, vmax=np.inf, dset_name="data", new_dset_name=None):
+        """
+        clip values of a stack or a tiled image, 
+        
+        Args:
+            vmin (float):
+                minimum clip value
+                Deault vmin negative infinity (no clippling)
+
+            vmax (float):
+                maximum clip value
+                Deault vmax positive infinity (no clippling)
+
+            dset_name (string):
+                dataset name for source of data
+            
+            new_dset_name (string):
+                dataset name for target of data
+                if new_dset_name is None the data in dset_name will be overwritten 
+                Defaults to None
+        """       
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
@@ -448,8 +528,44 @@ class stack_and_stitching_object:
                             np.clip(f[dset_name][row_start:row_end, col_start:col_end], 
                                     vmin, vmax)
 
-    def normalize(self, old_min, old_max, new_min, new_max, 
+    def normalize(self, old_min=None, old_max=None, new_min=0, new_max=1, 
                   dset_name="data", new_dset_name=None):
+        """
+        clip values of a stack or a tiled image, 
+        
+        Args:
+            old_min (float):
+                offset subtracted from data for normalization
+                if None -> old_min is set to global minimum
+                Deaults to None
+
+            old_max (float):
+                maximum value from data, that will correspond to new_max
+                after normalization
+                if None -> old_max is set to global maximum
+                Deaults to None
+
+            new_min (float):
+                Deaults to 0
+            
+            new_max (float):
+                Deaults to 1
+                
+            dset_name (string):
+                dataset name for source of data
+            
+            new_dset_name (string):
+                dataset name for target of data
+                if new_dset_name is None the data in dset_name will be overwritten 
+                Defaults to None
+        """ 
+        if old_min is None or old_max is None:
+            old_min_auto,old_max_auto=self.stats(histogram=False)
+            if not old_min:
+                old_min = old_min_auto
+            if not old_max:
+                old_max = old_max_auto
+
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
@@ -502,14 +618,25 @@ class stack_and_stitching_object:
 
     def flat_field_generation(self, percentile_steps=19, subdiv=4, dset_name="data"):
         """
-        Calculate a local flat field background by averaging percentiles
+        Calculate a local flat field background of a stack by averaging percentiles
 
         Args:
             percentile_steps (int > 1):
-            
+                number of percentiles used
+
             subdiv (int > 0):
+                subdiv=1 corresponds to no subdivsion, all data is loaded
+                subdiv=2 loads only half of the data into RAM
+                subdiv=3 corresponds to a third ...
+                adjust according to the size of data and RAM
+                Defaults to 4
 
             dset_name (string):
+                dataset name for source of data
+
+        Returns:
+            flat_field (array_like):
+                resulting flat field image
         """
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
@@ -543,6 +670,29 @@ class stack_and_stitching_object:
 
     def dust_from_flat_field(self, flat_field, threshold_block_size=17, 
                              morph_closing_size=5, dark_background=True, dilate=0):
+        """
+        extract positions of dust or dead pixels from flat field image
+
+        Args:
+            flat_field (array_like):
+                flat field image
+
+            threshold_block_size (int, uneven):
+                block size for binarization using adaptive gaussian thresholding (cv2)
+
+            morph_closing_size (int, uneven):
+
+            
+            dark_background (bool):
+
+            dilate (int >= 0):
+
+        Returns:
+            image_check:
+                check
+
+        """
+
         th = cv2.adaptiveThreshold(img_to_uint8(flat_field), 255, 
                                    cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 
                                    threshold_block_size, 2)
@@ -594,7 +744,10 @@ class stack_and_stitching_object:
             result[self.dust_dict[i][0]] = ring_values
         return result
 
-    def dust_removal_all(self,):
+    def dust_removal_all(self,dset_name="data", new_dset_name=None):
+        """
+        Apply dust removal on stack
+        """
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
@@ -605,6 +758,9 @@ class stack_and_stitching_object:
 
     def flat_field_correction(self, flat_field=None, 
                               dset_name="data", new_dset_name=None):
+        """
+        Apply flat field correction by division
+        """
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
@@ -629,7 +785,9 @@ class stack_and_stitching_object:
                 f[new_dset_name][i, :, :] = f[dset_name][i, :, :] / flat_field
 
     def convert_to_uint16(self, real_zero=False):  # ,newdtype=np.uint16):
-
+        """
+        save uint16 dataset in h5
+        """
         img_maxs = np.zeros(len(self.img_list))
         img_mins = np.zeros(len(self.img_list))
         with h5py.File(self.modifiable_file, "r") as f:
@@ -666,7 +824,10 @@ class stack_and_stitching_object:
                   self.modifiable_file)
 
     def make_polygons(self, units_per_pixel=None, positions=None, 
-                      dimensions=None, orientation=0):
+                      dimensions=None, orientation=2):
+        """
+        create polygon representation
+        """
         if units_per_pixel is None:
             units_per_pixel = self.units_per_pixel
         if positions is None:
@@ -704,6 +865,9 @@ class stack_and_stitching_object:
 
     def connection_groups(self, polygons=None, units_per_pixel=None, 
                           minimal_number_of_pixels=64, inverse=False):
+        """
+        create connection graph of overlapping polygons and return connected groups
+        """
         if polygons is None:
             polygons = self.polygons
         if units_per_pixel is None:
@@ -733,9 +897,12 @@ class stack_and_stitching_object:
             print("not all images can be connected via overlap")
             print("sorting out of non-connected images needed")
         self.con_group = con_groups[0]
-        return G, con_groups
+        return con_groups
 
     def plot_connection_network(self, figsize=None, relative=True):
+        """
+        plot connection graph
+        """
         if figsize is None:
             figsize=[15,15]
         plt.figure(figsize=figsize)
@@ -760,6 +927,17 @@ class stack_and_stitching_object:
         plt.show()
 
     def get_outer_polygon_limits(self, polygons):
+        """
+        Obtain bounding box containing all polygons
+
+        Args:
+            polygons (list):
+                List of polygons
+
+        Returns:
+            points (array_like):
+                corner points of bounding box as x and y coordinates with shape (4,2)
+        """
         minx = np.inf
         miny = np.inf
         maxx = -np.inf
@@ -784,10 +962,32 @@ class stack_and_stitching_object:
 
     def close_translation_by_phase_correlation(self, im1, im2, 
                                                sigma=1, max_transl=None):
+        """
+        calculate translation vector between images by phase correlation,
+        assumes 'closeness' as translations less than half of image dimensions
+        
+        Args:
+            im1 (array_like):
+                image 1
+            
+            im2 (array_like):
+                image 2
 
+            sigma (float):
+                width of Gaussian smoothing of correlation matrix
+
+            max_transl (tuple):
+                maximal translation limit enforced by masking the correlation matrix
+
+        Returns:
+            translation_vector (array_like, tuple):
+            
+            certainty (float):
+                normed signal noise ration (max-mean)/std
+        """
         # dims=im1.shape
 
-        mat = phase_correlation(im1, im2)
+        mat = img_correlation(im1-np.mean(im1), im2-np.mean(im2))
         # matb=cv2.blur(mat,[blur,blur])
         ksize = int(sigma * 4)
         if ksize % 2 == 0:
@@ -822,6 +1022,9 @@ class stack_and_stitching_object:
         return transl, certainty
 
     def real_to_pixel(self, index, points, orientation=2):
+        """
+        coordinate transformation from real space to pixel space
+        """
         unit_per_pixel = self.units_per_pixel
         anchor_point = self.anchor_points[index]
         points = np.vstack((points, anchor_point))
@@ -839,6 +1042,19 @@ class stack_and_stitching_object:
         return points  # np.round(points).astype(int)
 
     def crop_from_points(self, img, points, shape=None):
+        """
+        crop a section of an image conating all points (bounding box around points)
+        
+        Args:
+            img (array_like):
+
+            points (array_like,list):
+
+            shape (tuple,optional):
+
+        Returns:
+            cropped_img (array_like):
+        """
         vmin, hmin = np.min(points, axis=0)
         vmax, hmax = np.max(points, axis=0)
 
@@ -885,6 +1101,9 @@ class stack_and_stitching_object:
         return img[vmin_int:vmax_int, hmin_int:hmax_int]
 
     def pixel_to_real(self, index, points):
+        """
+        coordinate transformation from pixel space to real space
+        """
         anchor_point = self.anchor_points[index]
         unit_per_pixel = self.units_per_pixel
         vec1 = np.array([unit_per_pixel, 0])
@@ -895,11 +1114,25 @@ class stack_and_stitching_object:
             real_points[i] += anchor_point
         return real_points
 
-    def ordered_edge_sequence(self):
+    @staticmethod
+    def sort_tuples_close_repetition(list_of_tuples):
+        """
+        sort a list of 2-tuples containing integers from 0 to N, such that tuples 
+        with one identical element are in neighbouring positions
+        
+        Args:
+            list_of_tuples (list or array_like):
+                shape: Lx2
+            
+        Returns:
+            sorted_tuples (list):
+                shape: Lx2
+        """
+        N=np.max(list_of_tuples)
         tuple_sequence = []
-        tuple_array = np.array(self.G.edges())
+        tuple_array = list_of_tuples#np.array(self.G.edges())
         booleans = np.ones(len(tuple_array), dtype=bool)
-        for i in range(len(self.img_list)):
+        for i in range(N+1):#len(self.img_list)):
             for j in range(len(tuple_array)):
                 if booleans[j]:
                     if tuple_array[j][0] == i:
@@ -908,17 +1141,18 @@ class stack_and_stitching_object:
                     elif tuple_array[j][1] == i:
                         tuple_sequence.append(tuple_array[j][::-1])
                         booleans[j] = False
-        self.edge_sequence = tuple_sequence
+        return tuple_sequence
 
     def check_pairs(self, max_transl_pix=None, sigma=1, check_data=False):
-
+        """
+        obtain translation vectors from pairwise phase correlation
+        """
         shifts = []
         if check_data:
             croplist1 = []
             croplist2 = []
 
-        # pairs=np.array(self.G.edges())
-        self.ordered_edge_sequence()
+        self.edge_sequence=self.sort_tuples_close_repetition(np.array(self.G.edges()))
         pairs = self.edge_sequence
         old_index1 = -1
 
@@ -985,7 +1219,10 @@ class stack_and_stitching_object:
         return np.array(r)
 
     def optimize_positions(self, verbose=True):
-
+        """
+        global optimization of image positions in real space to minimize deviations
+        from ideal image translations given by phase correlation
+        """
         n_res = len(self.edge_tuples)
         n_var = len(self.positions) * 2
 
@@ -1021,11 +1258,52 @@ class stack_and_stitching_object:
                                        yoff=py - poly.centroid.y)
             for poly, (px, py) in zip(self.polygons, final)
         ]
+        self.moved_polygons=moved_polygons
         return moved_polygons
 
-    def map_from_polygons_h5(self, polygons, h5file=None, blending="average", 
-                             custom_mask=None, boolean_mask=False):
+    def map_from_polygons_h5(self, polygons=None, h5file=None, blending="average", 
+                             custom_mask=None, boolean_mask=False, border_value=0):
+        """
+        create image map by tiling all single images and fusing them together
+        the data is written into dataset "map" and "division_mask", "boolean_mask"
 
+        Args:
+            polygons (list of poly):
+                List of polygons, used for fusing the image map
+                if None, "moved_polygons" is used
+
+            h5file (string):
+                flie name / file path to write the new dataset to
+                if None, "modifiable_file' is used
+                Defaults to None
+
+            blending (string):
+                blending between image tiles in overlap area, choose between:
+                'average' : for using the average value at each pixel of different tiles
+                'linear' : for a weighted average, with weights linearly decreasing from
+                1 to 0 going from the center towards the edge of each image 
+                'quadratic' : for a weighted average, with weights decreasing from
+                1 to 0 like 1-x^2, going from the center towards the edge of each image
+                'maximum' : use maximum value for pixel in overlapping region
+                'minimum' : use minimum value for pixel in overlapping region
+                'hard_cut' : overwrite pixel values in overlapping regions
+                'custom_single' : give a set of custom weights to weighted average
+                Defaults to 'average'
+
+            custom_mask (array_like):
+                set of weights in the shape of a single image, only used when
+                'blending' is set to 'custom_single'
+                Defaults to None
+
+            boolean_mask (bool):
+                set to 'True' to return a mask with values being 'True' for areas
+                covered by the stitched image and 'False' for areas around it 
+                Defaults to 'False'
+
+            border_value (float):
+                value used for map borders, when 'blending' is 'minimum' or 'maximum'
+                Defaults to 0
+        """
         if h5file is None and self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
@@ -1040,6 +1318,13 @@ class stack_and_stitching_object:
         image_dims = np.max(pixelouter, axis=0) + offset_x_y
         division_needed = blending not in ("hard_cut", "minimum", "maximum")
 
+        if blending=="minimum":
+            fillvalue=np.inf
+        elif blending=="maximum":
+            fillvalue=-np.inf
+        else:
+            fillvalue=0
+
         with h5py.File(h5file, "a") as f:
 
             if division_needed:
@@ -1048,8 +1333,9 @@ class stack_and_stitching_object:
                             shape=image_dims,
                             dtype="float32",
                             chunks=(512, 512),
-                            fillvalue=0
+                            fillvalue=fillvalue
                         )
+
 
             if boolean_mask:
                 bmask = f.create_dataset(
@@ -1106,13 +1392,13 @@ class stack_and_stitching_object:
                     if boolean_mask:
                         bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
-                # elif blending=="minimum":
-                #    stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
-                #    stack[:,:,1]=img
-                #    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.min(
-                # stack,axis=-1)
-                #    if boolean_mask:
-                #        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
+                elif blending=="minimum":
+                    stack[:,:,0]=image[img_start[0]:img_end[0],img_start[1]:img_end[1]]
+                    stack[:,:,1]=img
+                    image[img_start[0]:img_end[0],img_start[1]:img_end[1]]=np.min(
+                                                                        stack,axis=-1)
+                    if boolean_mask:
+                        bmask[img_start[0]:img_end[0],img_start[1]:img_end[1]]=True
 
                 elif blending == "average":
                     image[img_start[0]:img_end[0], img_start[1]:img_end[1]] += img
@@ -1147,7 +1433,8 @@ class stack_and_stitching_object:
                     if boolean_mask:
                         bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
-            if division_needed:
+
+            if blending!="hard_cut":
                 n_rows, n_cols = image.shape
                 for row_start in tqdm(range(0, n_rows, chunk_rows), 
                                       desc="Rows", disable=self.no_print):
@@ -1157,14 +1444,61 @@ class stack_and_stitching_object:
                     for col_start in range(0, n_cols, chunk_cols):
                         col_end = min(col_start + chunk_cols, n_cols)
 
-                        divider = division_mask[row_start:row_end, col_start:col_end]
-                        divider[divider == 0] = 1
-                        # slice the 2D chunk
-                        image[row_start:row_end, col_start:col_end] = \
-                                image[row_start:row_end, col_start:col_end] / divider
+                        if division_needed:
+                            divider = division_mask[row_start:row_end, 
+                                                    col_start:col_end]
+                            divider[divider == 0] = 1
+                            # slice the 2D chunk
+                            image[row_start:row_end, col_start:col_end] = \
+                                    image[row_start:row_end, 
+                                          col_start:col_end] / divider
+                        elif blending == "minimum":
+                            tile=image[row_start:row_end, col_start:col_end]
+                            tile[tile==np.inf]=border_value
+                            image[row_start:row_end, col_start:col_end]=tile
+                        elif blending == "maximum":
+                            tile=image[row_start:row_end, col_start:col_end]
+                            tile[tile==-np.inf]=border_value
+                            image[row_start:row_end, col_start:col_end]=tile
+                        
 
-    def map_from_polygons(self, polygons, blending="average", 
-                          custom_mask=None, boolean_mask=False):
+    def map_from_polygons(self, polygons, blending="average", custom_mask=None, 
+                          boolean_mask=False, border_value=0):
+        """
+        create image map by tiling all single images and fusing them together
+
+        Args:
+            polygons (list of poly):
+                List of polygons, used for fusing the image map
+                if None, "moved_polygons" is used
+
+            blending (string):
+                blending between image tiles in overlap area, choose between:
+                'average' : for using the average value at each pixel of different tiles
+                'linear' : for a weighted average, with weights linearly decreasing from
+                1 to 0 going from the center towards the edge of each image 
+                'quadratic' : for a weighted average, with weights decreasing from
+                1 to 0 like 1-x^2, going from the center towards the edge of each image
+                'maximum' : use maximum value for pixel in overlapping region
+                'minimum' : use minimum value for pixel in overlapping region
+                'hard_cut' : overwrite pixel values in overlapping regions
+                'custom_single' : give a set of custom weights to weighted average
+                Defaults to 'average'
+
+            custom_mask (array_like):
+                set of weights in the shape of a single image, only used when
+                'blending' is set to 'custom_single'
+                Defaults to None
+
+            boolean_mask (bool):
+                set to 'True' to return a mask with values being 'True' for areas
+                covered by the stitched image and 'False' for areas around it 
+                Defaults to 'False'
+
+            border_value (float):
+                value used for map borders, when 'blending' is 'minimum' or 'maximum'
+                Defaults to 0
+        """
         start_index = 0
         outer_realspace = self.get_outer_polygon_limits(polygons)
         pixelouter = self.real_to_pixel(start_index, outer_realspace)
@@ -1181,6 +1515,8 @@ class stack_and_stitching_object:
 
         if blending == "minimum":
             image += np.inf
+        elif blending == "maximum":
+            image += -np.inf
 
         for index, poly in enumerate(tqdm(polygons, disable=self.no_print)):
             np_realspace = np.array(poly.oriented_envelope.exterior.xy).T[:-1]
@@ -1256,7 +1592,9 @@ class stack_and_stitching_object:
                     bmask[img_start[0]:img_end[0], img_start[1]:img_end[1]] = True
 
         if blending == "minimum":
-            image[image == np.inf] = 0
+            image[image == np.inf] = border_value
+        elif blending == "maximum":
+            image[image == -np.inf] = border_value
 
         if division_needed:
             division_mask[division_mask == 0] = 1
@@ -1269,6 +1607,10 @@ class stack_and_stitching_object:
 
     def z_transform_images(self, offset_positive=True, 
                            dset_name="data", new_dset_name=None):
+        """
+        execute a z-transfom on a stack of images 
+        (subtract mean, divide by standard deviation)
+        """
         new_img_list = []
         most_negative = 0
         if self.mode == "memory":
@@ -1283,6 +1625,8 @@ class stack_and_stitching_object:
                 for i in tqdm(range(len(self.img_list)), 
                               disable=self.no_print, desc="positive offset"):
                     new_img_list[i] -= most_negative
+            
+            return new_img_list
 
         else:
             if self.modifiable_file is None:

@@ -12,6 +12,112 @@ from numba import njit, prange
 from scipy.special import erf
 from skimage import exposure
 
+
+#%% phase_correlation
+def img_correlation(a, b, padding_ratio=4, pad_mode="mean", pad_attenuation="linear",
+                      pad_parameters=None,cross_correlation=False):
+    """
+    calculate the pase correlation between two images a,b (best with even dimensions)
+    with same shape MxN
+
+    Args:
+        a (MxN array_like): 
+            first image.
+        
+        b (MxN array_like): 
+            second image.
+
+        padding_ratio (float):
+            ratio of biggest dimension of image
+            Defaults to 4    
+        
+        pad_mode (string):
+            same modes as in numpy.pad
+            Defaults to 'mean'
+        
+        pad_attenuation (string):
+            For details see img_padding_attenuation
+            Defaults to 'linear'
+
+        pad_parameters (dictionary):
+            For details see img_padding_attenuation
+            Defaults to None
+
+        cross_correlation (bool):
+            set to 'True' for additionally returning cross correlation matrix
+            Defaults to 'False'
+    Returns:
+        phase_r (MxN array_like): 
+            phase correlation matrix.
+
+        cross_r (MxN array_like):
+            cross correlation matrix
+    """
+    M,N=np.shape(a)
+    padval=int(max(M,N)//padding_ratio)
+    statlength=int(np.ceil(padval/2))
+    pa=np.pad(a,padval,mode=pad_mode,stat_length=statlength)
+    pb=np.pad(b,padval,mode=pad_mode,stat_length=statlength)
+    pa=img_padding_attenuation(pa,padval,mode=pad_attenuation,parameters=pad_parameters)
+    pb=img_padding_attenuation(pb,padval,mode=pad_attenuation,parameters=pad_parameters)
+    if M%2==0 and N%2==0:
+        G_a = np.fft.rfft2(pa)
+        G_b = np.fft.rfft2(pb)
+        conj_b = np.conjugate(G_b)
+        R = G_a * conj_b
+        if cross_correlation:
+            phaseR = R/np.absolute(R)
+            cross_r = np.fft.irfft2(R)
+            phase_r = np.fft.irfft2(phaseR)
+            return phase_r,cross_r  
+        else:
+            R /= np.absolute(R)
+            phase_r = np.fft.irfft2(R)
+            return phase_r
+    else:
+        G_a = np.fft.fft2(pa)
+        G_b = np.fft.fft2(pb)
+        conj_b = np.conjugate(G_b)
+        R = G_a * conj_b
+        if cross_correlation:
+            phaseR = R/np.absolute(R)
+            cross_r = np.fft.ifft2(R).real
+            phase_r = np.fft.ifft2(phaseR).real
+            return phase_r,cross_r  
+        else:
+            R /= np.absolute(R)
+            phase_r = np.fft.ifft2(R).real
+            return phase_r
+
+
+#%% plain phase correlation
+def phase_correlation(a, b):
+    """
+    calculate the pase correlation between two images a,b
+    with same shape MxN
+
+    Args:
+        a (MxN array_like): 
+            first image.
+        
+        b (MxN array_like): 
+            second image.
+
+    Returns:
+        r (MxN array_like): 
+            phase correlation matrix.
+
+    """
+    G_a = np.fft.rfft2(a)
+    G_b = np.fft.rfft2(b)
+    conj_b = np.conjugate(G_b)
+    R = G_a * conj_b
+    R /= np.absolute(R)
+    r = np.fft.irfft2(R)
+    return r
+
+
+
 #%% padding manipulation
 
 def img_padding_attenuation(padded_img,pad_width,mode="linear",

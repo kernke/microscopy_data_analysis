@@ -7,140 +7,15 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .general_util import peak_com2d
+from .general_util import max_from_2d, peak_com2d
 from .image_processing import (
     img_add_weighted_rgba,
     img_gray_to_rgba,
-    img_padding_attenuation,
     img_periodic_tiling,
     img_to_half_int16,
     img_to_uint16,
+    phase_correlation,
 )
-
-
-#%% phase_correlation
-def phase_correlation(a, b):
-    """
-    calculate the pase correlation between two images a,b
-    with same shape MxN
-
-    Args:
-        a (MxN array_like): 
-            first image.
-        
-        b (MxN array_like): 
-            second image.
-
-    Returns:
-        r (MxN array_like): 
-            phase correlation matrix.
-
-    """
-    M,N=np.shape(a)
-    padval=int(max(M,N)//4)
-    #padval=max(M,N)
-    pa=np.pad(a,padval,mode="reflect")
-    pb=np.pad(b,padval,mode="reflect")
-    pa=img_padding_attenuation(pa,padval,mode="exponential",parameters={"lambda":4})
-    pb=img_padding_attenuation(pb,padval,mode="exponential",parameters={"lambda":4})
-    G_a = np.fft.rfft2(pa)#np.pad(a,padval,mode="median"))
-    G_b = np.fft.rfft2(pb)#np.pad(b,padval,mode="median"))
-    conj_b = np.conjugate(G_b)
-    R = G_a * conj_b
-    R /= np.absolute(R)
-    r = np.fft.irfft2(R)
-    return r
-
-#%% plain phase correlation
-def plain_phase_correlation(a, b):
-    """
-    calculate the pase correlation between two images a,b
-    with same shape MxN
-
-    Args:
-        a (MxN array_like): 
-            first image.
-        
-        b (MxN array_like): 
-            second image.
-
-    Returns:
-        r (MxN array_like): 
-            phase correlation matrix.
-
-    """
-    G_a = np.fft.rfft2(a)
-    G_b = np.fft.rfft2(b)
-    conj_b = np.conjugate(G_b)
-    R = G_a * conj_b
-    R /= np.absolute(R)
-    r = np.fft.irfft2(R)
-    return r
-#%% phase_and cross_correlation
-def phase_and_cross_correlation(a, b):
-    """
-    calculate the pase correlation between two images a,b
-    with same shape MxN (containing only real numbers)
-
-    Args:
-        a (MxN array_like): 
-            first image.
-        
-        b (MxN array_like): 
-            second image.
-
-    Returns:
-        r (MxN array_like): 
-            phase correlation matrix.
-
-    """
-    M,N=np.shape(a)
-    padval=int(max(M,N)//4)
-    #padval=max(M,N)
-    
-    pa=np.pad(a-np.mean(a),padval,mode="mean",stat_length=padval)
-    pb=np.pad(b-np.mean(b),padval,mode="mean",stat_length=padval)
-    pa=img_padding_attenuation(pa,padval,mode="linear")#,parameters={"end_value":np.mean(a)})
-    pb=img_padding_attenuation(pb,padval,mode="linear")
-
-    #G_a = np.fft.rfft2(np.pad(a,padval,mode="median"))
-    #G_b = np.fft.rfft2(np.pad(b,padval,mode="median"))
-    G_a = np.fft.rfft2(pa)
-    G_b = np.fft.rfft2(pb)
-    conj_b = np.conjugate(G_b)
-    R = G_a * conj_b
-    phaseR = R/np.absolute(R)
-    cross_r = np.fft.irfft2(R)
-    phase_r = np.fft.irfft2(phaseR)
-    return phase_r,cross_r
-
-#%% max_from_2d
-def max_from_2d(A):
-    """
-    get the position and value of the maximum from a matrix or image
-
-    Args:
-        A (MxN array_like): 
-            input 2D-signal.
-
-    Returns:
-        maximum_position (tuple): 
-            containing two integers.
-        
-        maximum_value (scalar): 
-            datatype depending on the input.
-
-    """
-
-    dist = np.argmax(A)
-    dist1 = dist % A.shape[1]
-    dist0 = dist // A.shape[1]
-
-    maximum_position=np.array([dist0, dist1])
-    maximum_value=A[dist0,dist1]
-    
-    return maximum_position,maximum_value
-
 
 #%% stitching
 
@@ -566,39 +441,6 @@ def fine_tuning_shifts(aligned_stack,delta=4):
 
 
 
-#%% pos_from_pcm
-
-
-def _pos_from_pcm(pcm, overlap_limits, mode, tolerance, imdim, rdrift, cdrift):
-    rwidth = overlap_limits[0, 1] - overlap_limits[0, 0]
-    cwidth = overlap_limits[1, 1] - overlap_limits[1, 0]
-
-    if mode == "vertical":
-        rstart = imdim[0] - overlap_limits[0, 1] + rdrift
-        rend = imdim[0] - overlap_limits[0, 0] + rdrift
-        cstart = -cwidth // 2 + cdrift
-        cend = cwidth // 2 + cdrift
-
-    elif mode == "horizontal":
-        cstart = imdim[0] - overlap_limits[1, 1] + cdrift
-        cend = imdim[0] - overlap_limits[1, 0] + cdrift
-        rstart = -rwidth // 2 + rdrift
-        rend = rwidth // 2 + rdrift
-
-    rows = np.arange(rstart, rend, dtype=int)
-    cols = np.arange(cstart, cend, dtype=int)
-    rowgrid, colgrid = np.meshgrid(rows, cols)
-
-    roipcm = pcm[rowgrid, colgrid]
-
-    dist = np.argmax(roipcm)
-    roidist1 = dist % roipcm.shape[1]
-    roidist0 = dist // roipcm.shape[1]
-
-    dist0 = rowgrid[roidist0, roidist1]
-    dist1 = colgrid[roidist0, roidist1]
-
-    return dist0, dist1, pcm[dist0, dist1]
 
 
 

@@ -9,8 +9,40 @@ from scipy.integrate import quad
 from scipy.spatial.distance import cdist
 
 from .general_util import make_mask
-from .image_aligning import _pos_from_pcm, phase_correlation
-from .image_processing import img_rotate_bound
+from .image_processing import img_rotate_bound, phase_correlation
+
+
+#%% pos_from_pcm
+def _pos_from_pcm(pcm, overlap_limits, mode, tolerance, imdim, rdrift, cdrift):
+    rwidth = overlap_limits[0, 1] - overlap_limits[0, 0]
+    cwidth = overlap_limits[1, 1] - overlap_limits[1, 0]
+
+    if mode == "vertical":
+        rstart = imdim[0] - overlap_limits[0, 1] + rdrift
+        rend = imdim[0] - overlap_limits[0, 0] + rdrift
+        cstart = -cwidth // 2 + cdrift
+        cend = cwidth // 2 + cdrift
+
+    elif mode == "horizontal":
+        cstart = imdim[0] - overlap_limits[1, 1] + cdrift
+        cend = imdim[0] - overlap_limits[1, 0] + cdrift
+        rstart = -rwidth // 2 + rdrift
+        rend = rwidth // 2 + rdrift
+
+    rows = np.arange(rstart, rend, dtype=int)
+    cols = np.arange(cstart, cend, dtype=int)
+    rowgrid, colgrid = np.meshgrid(rows, cols)
+
+    roipcm = pcm[rowgrid, colgrid]
+
+    dist = np.argmax(roipcm)
+    roidist1 = dist % roipcm.shape[1]
+    roidist0 = dist // roipcm.shape[1]
+
+    dist0 = rowgrid[roidist0, roidist1]
+    dist1 = colgrid[roidist0, roidist1]
+
+    return dist0, dist1, pcm[dist0, dist1]
 
 
 #%% relative_stitching_positions
