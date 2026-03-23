@@ -8,3 +8,6 @@ docs/_build
 *.egg-info/
 *.tif
 *.png
+*.h5
+*.dm4
+*.emd

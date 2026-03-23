@@ -18,7 +18,7 @@ from .image_processing import img_normalize, img_to_uint8
 
 def h5_to_pyramidal_tiff(
     h5_path,
-    dataset_key,
+    dset_name,
     out_path,
     compression="lzw",
     max_levels=4,
@@ -30,7 +30,7 @@ def h5_to_pyramidal_tiff(
     """
 
     with h5py.File(h5_path, "r") as f:
-        dset = f[dataset_key]
+        dset = f[dset_name]
         shape = dset.shape
         if dtype is None:
             dtype = dset.dtype
@@ -104,7 +104,7 @@ def h5_to_pyramidal_tiff(
 
 def h5_to_tiff(
     h5_path,
-    dataset_key,
+    dset_name,
     out_path,
     compression="lzw",
     big_tiff=True,
@@ -114,7 +114,7 @@ def h5_to_tiff(
 
     # --- Open HDF5 ---
     with h5py.File(h5_path, "r") as f:
-        dset = f[dataset_key]
+        dset = f[dset_name]
         shape = dset.shape
         if dtype is None:
             dtype = dset.dtype

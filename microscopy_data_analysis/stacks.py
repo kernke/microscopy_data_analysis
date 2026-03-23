@@ -26,7 +26,7 @@ class image_stack:
             mode (string): 
                 'storage' only single images are loaded into RAM 
                 when needed 
-                ('storage' supports images as .tif, .png ... 
+                ('storage' supports images as .tif, .png, dm4, emd, ... 
                 or as multiple files in .h5 or as datacube in .h5)
                 The mode 'memory' can be used, for small image series, 
                 that are already being loaded fully into RAM
@@ -38,10 +38,10 @@ class image_stack:
         """
         self.mode = mode
         self.no_print = no_print
-        self.images_from = "original"
         self.directory = None
         self.modifiable_file = None
         self.overwrite = True
+        self.units_per_pixel = 1
         self.warning_mod_is_none = "please first provide a modifiable dataset" \
                                 " by using 'create_h5cube_duplicate_for_modifying'"
         if not no_print:
@@ -108,7 +108,7 @@ class image_stack:
             mode (string): 
                 'storage' only single images are loaded into RAM 
                 when needed 
-                ('storage' supports images as .tif, .png ... 
+                ('storage' supports images as .tif, .png, dm4, emd, ... 
                 or as multiple files in .h5 or as datacube in .h5)
                 The mode 'memory' can be used, for small image series, 
                 that are already being loaded fully into RAM
@@ -147,7 +147,7 @@ class image_stack:
         else:
             self.img_list = img_list
 
-    def get_img(self, index):
+    def get_img(self, index,dset_name=None):
         """
         Load the requested image into RAM and return it
 
@@ -160,21 +160,23 @@ class image_stack:
             img (array): 
                 requested image
         """
-        if self.images_from == "original":
-            if self.mode == "memory":
-                img = self.img_list[index]
-            elif self.mode == "storage":
-                if self.h5_mode:
-                    with h5py.File(self.directory, 'r') as h5:
-                        img = h5[self.img_list[index]][()]
-                else:
-                    img = cv2.imread(self.img_list[index], 0)
-            elif self.mode == "h5_datacube":
-                with h5py.File(self.directory, 'r') as h5:
-                    img = h5[self.dataset_name][index, :, :]
-        else:
+        if dset_name:
             with h5py.File(self.modifiable_file, 'r') as h5:
-                img = h5[self.images_from][index, :, :]
+                img = h5[dset_name][index, :, :]  
+            return img         
+
+        if self.mode == "memory":
+            img = self.img_list[index]
+        elif self.mode == "storage":
+            if self.h5_mode:
+                with h5py.File(self.directory, 'r') as h5:
+                    img = h5[self.img_list[index]][()]
+            else:
+                img = cv2.imread(self.img_list[index], 0)
+        elif self.mode == "h5_datacube":
+            with h5py.File(self.directory, 'r') as h5:
+                img = h5[self.dataset_name][index, :, :]
+
         return img
 
     def set_positions(self, positions):
@@ -227,16 +229,6 @@ class image_stack:
             #    else:
             #        self.dimensions[i]=imagesize.get(self.img_list[i])
 
-    def use_images_from(self, source="original"):
-        """
-        Determine where 'get_img' takes an image from
-
-        Args:
-            source (string): 
-                source either corresponds to 'original' 
-                or to the dataset name (for example: 'data') of the modifiable h5-file
-        """
-        self.images_from = source
 
     def overwrite_modifiable_datasets(self,overwrite=True):
         """
@@ -261,7 +253,7 @@ class image_stack:
         """
         self.no_print = no_print
 
-    def set_img(self, index, img, filename="temp.h5", dset_name="data"):
+    def set_img(self, index, img, dset_name):
         """
         Exchange the image with given index in the modifiable dataset
 
@@ -272,10 +264,7 @@ class image_stack:
             img (array): 
                 new image that exchanges the old one
 
-            filename (string, optional): 
-                name of the h5-file
-
-            dsetname (string, optional): 
+            dsetname (string): 
                 name of/path to the dataset inside the h5-file
         """
         if self.modifiable_file is None:
@@ -304,9 +293,6 @@ class image_stack:
                 dataset necessary for change)
                 Defaults to 'False'
         """
-        if not self.no_print:
-            print("With 'use_images_from' the output of 'get_img' can be set to " \
-            "correspond to original or modified images")
         self.modifiable_file = filename
         if force_dtype:
             img = self.get_img(0)
@@ -331,6 +317,7 @@ class image_stack:
             for i in tqdm(range(len(self.img_list)), disable=self.no_print):
                 img = self.get_img(i)
                 f[dset_name][i, :, :] = img
+
 
     def subtract_dark_field(self, dark_field, dset_name="data", new_dset_name=None):
         """
@@ -364,7 +351,8 @@ class image_stack:
                 f[new_dset_name][i, :, :] = np.maximum(
                                             f[dset_name][i, :, :] - dark_field, 0)
 
-    def stats(self, histogram=True, histo_levels=100, dset_name=None, mask=None):
+    def stats(self, histogram=True, histo_levels=100, dset_name=None, mask=None,
+              original=False):
         """
         get statistics from a stack or a tiled image, 
         obtain minimum, maximum and histogram
@@ -392,21 +380,21 @@ class image_stack:
         """
         stack_max = -np.inf
         stack_min = np.inf
-        easy_iterate = dset_name is None
-        if not easy_iterate:
-            if self.modifiable_file is None:
-                print(self.warning_mod_is_none)
-                return 0
-            with h5py.File(self.modifiable_file, "r") as f:
-                if len(f[dset_name].shape) == 3:
-                    easy_iterate = True
 
-        if easy_iterate:
+        if not original and self.modifiable_file and not dset_name:
+            dset_name="data"
+
+        if self.modifiable_file is None:
+            original=True
+
+        if self.mode=="memory" or original:
+            if dset_name:
+                print(dset_name+ " as dset_name not supported in mode 'memory', "
+                "wihtout modifiable file or setting 'original' True")
+                return 0
             for i in tqdm(range(len(self.img_list)), 
                           disable=self.no_print, desc="min/max"):
                 img = self.get_img(i)
-                stack_max = max(np.max(img), stack_max)
-                stack_min = min(np.min(img), stack_min)
 
             if histogram:
                 bin_edges = np.linspace(stack_min, stack_max, histo_levels + 1)
@@ -419,8 +407,30 @@ class image_stack:
                 return stack_min, stack_max, bin_edges, cumulative
             else:
                 return stack_min, stack_max
-        else:
-            with h5py.File(self.modifiable_file, "r") as f:
+
+
+        with h5py.File(self.modifiable_file, "r") as f:
+            if len(f[dset_name].shape) == 3:
+
+                for i in tqdm(range(len(self.img_list)), 
+                            disable=self.no_print, desc="min/max"):
+                    img = f[dset_name][i,:,:]
+                    stack_max = max(np.max(img), stack_max)
+                    stack_min = min(np.min(img), stack_min)
+
+                if histogram:
+                    bin_edges = np.linspace(stack_min, stack_max, histo_levels + 1)
+                    cumulative = np.zeros(histo_levels)
+                    for i in tqdm(range(len(self.img_list)), 
+                                disable=self.no_print, desc="histo"):
+                        hist, new_bins = np.histogram(np.ravel(f[dset_name][i,:,:]), 
+                                                    bins=bin_edges)
+                        cumulative += hist
+                    return stack_min, stack_max, bin_edges, cumulative
+                else:
+                    return stack_min, stack_max
+            
+            else:
                 chunk_rows, chunk_cols = f[dset_name].chunks
                 n_rows, n_cols = f[dset_name].shape
 
@@ -436,8 +446,9 @@ class image_stack:
                         tile = f[dset_name][row_start:row_end, col_start:col_end]
                         if mask:
                             tile = tile[f[mask][row_start:row_end, col_start:col_end]]
-                        stack_max = max(np.max(tile), stack_max)
-                        stack_min = min(np.min(tile), stack_min)
+                        if len(tile)!=0:
+                            stack_max = max(np.max(tile), stack_max)
+                            stack_min = min(np.min(tile), stack_min)
 
                 if histogram:
                     bin_edges = np.linspace(stack_min, stack_max, histo_levels + 1)
@@ -572,7 +583,7 @@ class image_stack:
                 Defaults to None
         """ 
         if old_min is None or old_max is None:
-            old_min_auto,old_max_auto=self.stats(histogram=False)
+            old_min_auto,old_max_auto=self.stats(histogram=False,dset_name=dset_name)
             if not old_min:
                 old_min = old_min_auto
             if not old_max:
@@ -1170,7 +1181,8 @@ class image_stack:
                         booleans[j] = False
         return tuple_sequence
 
-    def check_pairs(self, max_transl_pix=None, sigma=1, check_data=False):
+    def check_pairs(self, max_transl_pix=None, sigma=1, check_data=False, 
+                    dset_name=None):
         """
         obtain translation vectors from pairwise phase correlation
         """
@@ -1187,59 +1199,121 @@ class image_stack:
         pairs = self.edge_sequence
         old_index1 = -1
 
-        for pair in tqdm(pairs, disable=self.no_print):
+        if dset_name:
+            with h5py.File(self.modifiable_file, "r") as f:
+                for pair in tqdm(pairs, disable=self.no_print):
 
-            index1 = pair[0]
-            index2 = pair[1]
+                    index1 = pair[0]
+                    index2 = pair[1]
 
-            poly1 = self.polygons[index1]
-            poly2 = self.polygons[index2]
+                    poly1 = self.polygons[index1]
+                    poly2 = self.polygons[index2]
 
-            overlap = shapely.intersection(poly1, poly2)
-            overlap_coord = np.array(overlap.oriented_envelope.exterior.xy).T[:-1]
+                    overlap = shapely.intersection(poly1, poly2)
+                    overlap_coord = np.array(
+                                        overlap.oriented_envelope.exterior.xy).T[:-1]
 
-            im1_overlap_coord = self.real_to_pixel(index1,
-                            overlap_coord)
+                    im1_overlap_coord = self.real_to_pixel(index1,
+                                    overlap_coord)
 
-            im2_overlap_coord = self.real_to_pixel(index2,
-                            overlap_coord)
+                    im2_overlap_coord = self.real_to_pixel(index2,
+                                    overlap_coord)
 
-            im2 = self.get_img(index2)
-            im2_crop = self.crop_from_points(im2, im2_overlap_coord)
+                    im2 = f[dset_name][index2,:,:]#self.get_img(index2)
+                    im2_crop = self.crop_from_points(im2, im2_overlap_coord)
 
-            if old_index1 != index1:
-                im1 = self.get_img(index1)
-                old_index1 = index1
+                    if old_index1 != index1:
+                        im1 = f[dset_name][index1,:,:]#self.get_img(index1)
+                        old_index1 = index1
 
-            im1_crop = self.crop_from_points(im1, im1_overlap_coord)
+                    im1_crop = self.crop_from_points(im1, im1_overlap_coord)
+
+                    if check_data:
+                        croplist1.append(im1_crop)
+                        croplist2.append(im2_crop)
+
+                    pix_transl, certainty = self.close_translation_by_phase_correlation(
+                                                        im1_crop[:, :], im2_crop[:, :],
+                                                        sigma=sigma, 
+                                                        max_transl=max_transl_pix)
+                    real_transl = self.units_per_pixel * pix_transl[::-1]
+                    real_transl[1] *= -1
+
+                    shifts.append(self.positions[index2] - self.positions[index1] + 
+                                                                            real_transl)
+
+                pcm_distances = dict()
+                pcm_weights = dict()
+                edge_tuples = list(map(tuple, pairs))
+                for i, edge in enumerate(edge_tuples):
+                    pcm_distances[edge] = shifts[i]
+                    pcm_weights[edge]=weights[i]
+
+                self.pcm_weights=pcm_weights
+                self.pcm_distances = pcm_distances
+                self.edge_tuples = edge_tuples
+
+                if check_data:
+                    return pcm_distances, croplist1, croplist2
+                else:
+                    return pcm_distances            
+
+        else:
+            for pair in tqdm(pairs, disable=self.no_print):
+
+                index1 = pair[0]
+                index2 = pair[1]
+
+                poly1 = self.polygons[index1]
+                poly2 = self.polygons[index2]
+
+                overlap = shapely.intersection(poly1, poly2)
+                overlap_coord = np.array(overlap.oriented_envelope.exterior.xy).T[:-1]
+
+                im1_overlap_coord = self.real_to_pixel(index1,
+                                overlap_coord)
+
+                im2_overlap_coord = self.real_to_pixel(index2,
+                                overlap_coord)
+
+                im2 = self.get_img(index2)
+                im2_crop = self.crop_from_points(im2, im2_overlap_coord)
+
+                if old_index1 != index1:
+                    im1 = self.get_img(index1)
+                    old_index1 = index1
+
+                im1_crop = self.crop_from_points(im1, im1_overlap_coord)
+
+                if check_data:
+                    croplist1.append(im1_crop)
+                    croplist2.append(im2_crop)
+
+                pix_transl, certainty = self.close_translation_by_phase_correlation(
+                                                    im1_crop[:, :], im2_crop[:, :],
+                                                    sigma=sigma, 
+                                                    max_transl=max_transl_pix)
+                real_transl = self.units_per_pixel * pix_transl[::-1]
+                real_transl[1] *= -1
+
+                shifts.append(self.positions[index2] - self.positions[index1] + 
+                                                                        real_transl)
+
+            pcm_distances = dict()
+            pcm_weights = dict()
+            edge_tuples = list(map(tuple, pairs))
+            for i, edge in enumerate(edge_tuples):
+                pcm_distances[edge] = shifts[i]
+                pcm_weights[edge]=weights[i]
+
+            self.pcm_weights=pcm_weights
+            self.pcm_distances = pcm_distances
+            self.edge_tuples = edge_tuples
 
             if check_data:
-                croplist1.append(im1_crop)
-                croplist2.append(im2_crop)
-
-            pix_transl, certainty = self.close_translation_by_phase_correlation(
-                                                im1_crop[:, :], im2_crop[:, :],
-                                                sigma=sigma, max_transl=max_transl_pix)
-            real_transl = self.units_per_pixel * pix_transl[::-1]
-            real_transl[1] *= -1
-
-            shifts.append(self.positions[index2] - self.positions[index1] + real_transl)
-
-        pcm_distances = dict()
-        pcm_weights = dict()
-        edge_tuples = list(map(tuple, pairs))
-        for i, edge in enumerate(edge_tuples):
-            pcm_distances[edge] = shifts[i]
-            pcm_weights[edge]=weights[i]
-
-        self.pcm_weights=pcm_weights
-        self.pcm_distances = pcm_distances
-        self.edge_tuples = edge_tuples
-
-        if check_data:
-            return pcm_distances, croplist1, croplist2
-        else:
-            return pcm_distances
+                return pcm_distances, croplist1, croplist2
+            else:
+                return pcm_distances
 
     @staticmethod
     def _residuals(posflat, edge_tuples, pcm_distances,pcm_weights):
@@ -1308,7 +1382,8 @@ class image_stack:
 
 
     def map_from_polygons_h5(self, polygons=None, h5file=None, blending="average", 
-                             custom_mask=None, boolean_mask=False, border_value=0):
+                             custom_mask=None, boolean_mask=False, border_value=0,
+                             dset_name=None):
         """
         create image map by tiling all single images and fusing them together
         the data is written into dataset "map" and "division_mask", "boolean_mask"
@@ -1430,7 +1505,12 @@ class image_stack:
                 np_pixelspace = np.round(self.real_to_pixel(start_index, 
                                                             np_realspace)).astype(int)
                 image_pixelspace = np_pixelspace + offset_x_y
-                img = self.get_img(index)
+                
+                if dset_name:
+                    img = f[dset_name][index,:,:]
+                else:
+                    img = self.get_img(index)
+
                 img_start = np.min(image_pixelspace, axis=0)
                 # img_end=np.max(image_pixelspace,axis=0)
                 img_end = img_start + img.shape
@@ -1520,7 +1600,7 @@ class image_stack:
                         
 
     def map_from_polygons(self, polygons, blending="average", custom_mask=None, 
-                          boolean_mask=False, border_value=0):
+                          boolean_mask=False, border_value=0,dset_name=None):
         """
         create image map by tiling all single images and fusing them together
 
@@ -1580,7 +1660,11 @@ class image_stack:
             np_pixelspace = np.round(self.real_to_pixel(start_index, 
                                                         np_realspace)).astype(int)
             image_pixelspace = np_pixelspace + offset_x_y
-            img = self.get_img(index)
+            if dset_name:
+                with h5py.File(self.modifiable_file, "r") as f:
+                    img=f[dset_name][index,:,:]
+            else:
+                img = self.get_img(index)
             img_start = np.min(image_pixelspace, axis=0)
             # img_end=np.max(image_pixelspace,axis=0)
             img_end = img_start + img.shape
@@ -1711,7 +1795,7 @@ class image_stack:
                     minimum = np.min(img)
                     mean = np.mean(img)
                     std = np.std(img)
-                    f[new_dset_name][i, :, :] = (img - mean) / std
+                    f[new_dset_name][i, :, :] = (img.astype(np.single) - mean) / std
                     most_negative = min((minimum - mean) / std, most_negative)
 
                 if offset_positive:

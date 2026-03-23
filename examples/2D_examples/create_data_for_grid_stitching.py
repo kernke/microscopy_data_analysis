@@ -1,12 +1,17 @@
 """
 @author: kernke
 """
+import os
+
 import cv2
 import numpy as np
 import scipy.datasets
 
 
 def run_script():
+    # create folder for example images
+    os.makedirs("example_images", exist_ok=True)
+
     # take example image and transform to gray-levels and desired size   
     test = scipy.datasets.face()
     test=np.mean(test,axis=-1)
@@ -49,7 +54,8 @@ def run_script():
         tests[i]=tests[i]/(np.max(tests[i]))+np.random.uniform(0.2,4) 
         
         tests[i]=tests[i]/(np.max(tests[i]))*255
-        cv2.imwrite('image_'+str(i).zfill(2)+'.tif', tests[i].astype(np.uint8))
+        cv2.imwrite('example_images/image_'+str(i).zfill(2)+'.tif', 
+                    tests[i].astype(np.uint8))
 
 # Execute the script  
 if __name__ == '__main__':
