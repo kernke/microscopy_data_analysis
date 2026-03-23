@@ -12,8 +12,7 @@ from scipy.sparse import lil_matrix
 from tqdm import tqdm
 
 from .general_util import max_from_2d
-from .image_aligning import img_correlation, img_padding_attenuation
-from .image_processing import img_to_uint8
+from .image_processing import img_correlation, img_padding_attenuation, img_to_uint8
 
 
 class image_stack:
