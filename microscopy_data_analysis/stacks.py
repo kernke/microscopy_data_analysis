@@ -211,7 +211,11 @@ class image_stack:
             img = self.get_img(0)
             imgshape = img.shape
         else:
-            imgshape = imagesize.get(self.img_list[0])
+            if self.mode == "storage":
+                imgshape = imagesize.get(self.img_list[0])
+            else:
+                imgshape = self.img_list[0].shape
+
         for i in range(len(self.img_list)):
             self.dimensions[i] = imgshape
 
@@ -895,16 +899,18 @@ class image_stack:
         G = nx.Graph()
         G.add_nodes_from(np.arange(N))
 
+        overlaps=[]
         for i in range(N - 1):
             for j in range(i + 1, N):
                 inter = shapely.intersection(polygons[i], polygons[j])
                 area = inter.area / square_units
                 cond1 = area > minimal_number_of_pixels
                 if cond1:
+                    overlaps.append(int(np.round(area)))                    
                     if inverse:
                         G.add_edge(i, j, weight=1 / area)
                     else:
-                        G.add_edge(i, j, weight=area)
+                        G.add_edge(i, j, weight=overlaps[-1])
 
         con_groups = []
         for i in nx.connected_components(G):
@@ -914,6 +920,7 @@ class image_stack:
             print("not all images can be connected via overlap")
             print("sorting out of non-connected images needed")
         self.con_group = con_groups[0]
+        self.max_overlap=np.max(overlaps)
         return con_groups
 
     def plot_connection_network(self, figsize=None, relative=True):
@@ -1006,11 +1013,14 @@ class image_stack:
 
         mat = img_correlation(im1-np.mean(im1), im2-np.mean(im2))
         # matb=cv2.blur(mat,[blur,blur])
-        ksize = int(sigma * 4)
-        if ksize % 2 == 0:
-            ksize += 1
-        matb = cv2.GaussianBlur(mat, [ksize, ksize], sigma)  # ,cv2.BORDER_WRAP)
-        mat0 = matb - np.min(matb)
+        if sigma is None:
+            mat0=mat-np.min(mat)
+        else:
+            ksize = int(sigma * 4)
+            if ksize % 2 == 0:
+                ksize += 1
+            matb = cv2.GaussianBlur(mat, [ksize, ksize], sigma)  # ,cv2.BORDER_WRAP)
+            mat0 = matb - np.min(matb)
 
         dims = mat0.shape
 
@@ -1170,6 +1180,10 @@ class image_stack:
             croplist2 = []
 
         self.edge_sequence=self.sort_tuples_close_repetition(np.array(self.G.edges()))
+        weights=[]
+        for edge in self.edge_sequence:
+            weights.append(self.G.get_edge_data(*edge)["weight"]/self.max_overlap)
+        self.edge_weights=weights
         pairs = self.edge_sequence
         old_index1 = -1
 
@@ -1212,10 +1226,13 @@ class image_stack:
             shifts.append(self.positions[index2] - self.positions[index1] + real_transl)
 
         pcm_distances = dict()
+        pcm_weights = dict()
         edge_tuples = list(map(tuple, pairs))
         for i, edge in enumerate(edge_tuples):
             pcm_distances[edge] = shifts[i]
+            pcm_weights[edge]=weights[i]
 
+        self.pcm_weights=pcm_weights
         self.pcm_distances = pcm_distances
         self.edge_tuples = edge_tuples
 
@@ -1225,13 +1242,14 @@ class image_stack:
             return pcm_distances
 
     @staticmethod
-    def _residuals(posflat, edge_tuples, pcm_distances):
+    def _residuals(posflat, edge_tuples, pcm_distances,pcm_weights):
         n = int(len(posflat) // 2)
         pts = posflat.reshape(n, 2)
         r = []
 
         for i, j in edge_tuples:
-            r.append(np.linalg.norm(pts[j] - pts[i] - pcm_distances[i, j]))
+            r.append(np.linalg.norm(pts[j] - pts[i] - pcm_distances[i, j]) *
+                                                        pcm_weights[i,j])
 
         return np.array(r)
 
@@ -1263,7 +1281,7 @@ class image_stack:
             self._residuals,
             x0,
             jac_sparsity=S,
-            args=(self.edge_tuples, self.pcm_distances),
+            args=(self.edge_tuples, self.pcm_distances,self.pcm_weights),
             method='trf',
             verbose=verbose_level
         )
@@ -1277,6 +1295,17 @@ class image_stack:
         ]
         self.moved_polygons=moved_polygons
         return moved_polygons
+
+    def refine_positions(self,moved_polygons,plot_connection=True):
+        positions=np.array([(poly.centroid.x,poly.centroid.y) 
+                            for poly in moved_polygons])
+        self.positions=positions
+        self.make_polygons()
+        self.connection_groups()
+        if plot_connection:
+            self.plot_connection_network(relative=False)
+
+
 
     def map_from_polygons_h5(self, polygons=None, h5file=None, blending="average", 
                              custom_mask=None, boolean_mask=False, border_value=0):

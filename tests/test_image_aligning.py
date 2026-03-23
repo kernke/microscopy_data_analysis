@@ -1,6 +1,4 @@
 """
-Created on Mon Aug  5 15:35:09 2024
-
 @author: kernke
 """
 
