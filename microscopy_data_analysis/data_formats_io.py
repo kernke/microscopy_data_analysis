@@ -146,7 +146,7 @@ def h5_to_tiff(
             compression=compression
         )
 
-    print(f"Saved BigTIFF: {out_path}")
+    print(f"Saved TIFF: {out_path}")
 
 
 
