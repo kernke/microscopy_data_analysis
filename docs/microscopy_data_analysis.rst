@@ -28,6 +28,14 @@ microscopy\_data\_analysis.stacks module
    :undoc-members:
    :show-inheritance:
 
+microscopy\_data\_analysis.image\_aligning module
+----------------------------------------------------
+
+.. automodule:: microscopy_data_analysis.image_aligning
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 microscopy\_data\_analysis.image\_processing module
 ----------------------------------------------------
 

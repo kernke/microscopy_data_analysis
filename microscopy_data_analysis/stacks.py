@@ -11,8 +11,9 @@ from scipy.optimize import least_squares
 from scipy.sparse import lil_matrix
 from tqdm import tqdm
 
-from .general_util import max_from_2d
-from .image_processing import img_correlation, img_padding_attenuation, img_to_uint8
+from .data_formats_io import get_dm4_with_metadata, get_emd_with_metadata
+from .image_aligning import close_translation_by_phase_correlation
+from .image_processing import img_padding_attenuation, img_to_uint8
 
 
 class image_stack:
@@ -172,7 +173,13 @@ class image_stack:
                 with h5py.File(self.directory, 'r') as h5:
                     img = h5[self.img_list[index]][()]
             else:
-                img = cv2.imread(self.img_list[index], 0)
+                if self.img_list[index][-3:]=="dm4":
+                    data,metadata=get_dm4_with_metadata(self.img_list[index])
+                    img=data["data"]
+                elif self.img_list[index][-3:]=="emd":
+                    img,metadata=get_emd_with_metadata(self.img_list[index])
+                else:
+                    img = cv2.imread(self.img_list[index], 0)
         elif self.mode == "h5_datacube":
             with h5py.File(self.directory, 'r') as h5:
                 img = h5[self.dataset_name][index, :, :]
@@ -780,10 +787,12 @@ class image_stack:
         if self.modifiable_file is None:
             print(self.warning_mod_is_none)
             return 0
+        if new_dset_name is None:
+            new_dset_name=dset_name
         self.flat_field = self.dust_removal(self.flat_field)
         with h5py.File(self.modifiable_file, "r+") as f:
             for i in range(len(self.img_list)):
-                f["data"][i, :, :] = self.dust_removal(f["data"][i, :, :])
+                f[new_dset_name][i, :, :] = self.dust_removal(f[dset_name][i, :, :])
 
     def flat_field_correction(self, flat_field=None, 
                               dset_name="data", new_dset_name=None):
@@ -995,70 +1004,6 @@ class image_stack:
         points[3] = minx, maxy
         return points
 
-    def close_translation_by_phase_correlation(self, im1, im2, 
-                                               sigma=1, max_transl=None):
-        """
-        calculate translation vector between images by phase correlation,
-        assumes 'closeness' as translations less than half of image dimensions
-        
-        Args:
-            im1 (array_like):
-                image 1
-            
-            im2 (array_like):
-                image 2
-
-            sigma (float):
-                width of Gaussian smoothing of correlation matrix
-
-            max_transl (tuple):
-                maximal translation limit enforced by masking the correlation matrix
-
-        Returns:
-            translation_vector (array_like, tuple):
-            
-            certainty (float):
-                normed signal noise ration (max-mean)/std
-        """
-        # dims=im1.shape
-
-        mat = img_correlation(im1-np.mean(im1), im2-np.mean(im2))
-        # matb=cv2.blur(mat,[blur,blur])
-        if sigma is None:
-            mat0=mat-np.min(mat)
-        else:
-            ksize = int(sigma * 4)
-            if ksize % 2 == 0:
-                ksize += 1
-            matb = cv2.GaussianBlur(mat, [ksize, ksize], sigma)  # ,cv2.BORDER_WRAP)
-            mat0 = matb - np.min(matb)
-
-        dims = mat0.shape
-
-        mean = np.mean(mat0)
-        std = np.std(mat0)
-        # print(std)
-        if max_transl:
-            img_mask = np.zeros(dims)
-            img_mask[:max_transl[0] + 1, :max_transl[1] + 1] = 1
-            img_mask[:max_transl[0] + 1, -max_transl[1]:] = 1
-            img_mask[-max_transl[0]:, :max_transl[1] + 1] = 1
-            img_mask[-max_transl[0]:, -max_transl[1]:] = 1
-            # plt.imshow(img_mask)
-        else:
-            img_mask = np.ones(dims)
-
-        matm = mat0 * img_mask
-
-        transl, maxval = max_from_2d(matm)
-        if transl[0] > dims[0] / 2:
-            transl[0] -= dims[0]
-        if transl[1] > dims[1] / 2:
-            transl[1] -= dims[1]
-
-        certainty = (maxval - mean) / std
-        return transl, certainty
-
     def real_to_pixel(self, index, points, orientation=2):
         """
         coordinate transformation from real space to pixel space
@@ -1232,7 +1177,7 @@ class image_stack:
                         croplist1.append(im1_crop)
                         croplist2.append(im2_crop)
 
-                    pix_transl, certainty = self.close_translation_by_phase_correlation(
+                    pix_transl, certainty = close_translation_by_phase_correlation(
                                                         im1_crop[:, :], im2_crop[:, :],
                                                         sigma=sigma, 
                                                         max_transl=max_transl_pix)
@@ -1289,7 +1234,7 @@ class image_stack:
                     croplist1.append(im1_crop)
                     croplist2.append(im2_crop)
 
-                pix_transl, certainty = self.close_translation_by_phase_correlation(
+                pix_transl, certainty = close_translation_by_phase_correlation(
                                                     im1_crop[:, :], im2_crop[:, :],
                                                     sigma=sigma, 
                                                     max_transl=max_transl_pix)
@@ -1365,8 +1310,8 @@ class image_stack:
         moved_polygons = [
             shapely.affinity.translate(poly, xoff=px - poly.centroid.x, 
                                        yoff=py - poly.centroid.y)
-            for poly, (px, py) in zip(self.polygons, final)
-        ]
+            for poly, (px, py) in zip(self.polygons, final) ]
+        
         self.moved_polygons=moved_polygons
         return moved_polygons
 

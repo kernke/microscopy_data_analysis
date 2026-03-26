@@ -1,6 +1,8 @@
 """
 @author: kernke
 """
+from copy import deepcopy
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,8 +11,263 @@ from scipy.integrate import quad
 from scipy.spatial.distance import cdist
 
 from .general_util import make_mask
-from .image_processing import img_rotate_bound, phase_correlation
+from .image_aligning import phase_correlation
+from .image_processing import img_rotate_bound, img_to_half_int16
 
+
+#%%
+#%% fine_tuning_shifts (real space align)
+def fine_tuning_shifts(aligned_stack,delta=4):
+    stack=np.zeros([aligned_stack.shape[0],aligned_stack.shape[1]+1,aligned_stack.shape[2]+1],dtype=np.int16)
+    for i in range(len(stack)):
+
+        stack[i,:-1,:-1]=img_to_half_int16(aligned_stack[i])
+        
+    changes=np.zeros([2*delta+1,2*delta+1])
+    shifts=np.zeros([len(stack),2],dtype=int)
+
+    deltarange=np.arange(-delta,delta+1,1)
+    Nd=len(deltarange)
+    for i in range(len(stack)-1):
+        img0=stack[i][delta:-delta-1,delta:-delta-1]
+        for j in range(Nd):
+            deltaj=deltarange[j]
+            for k in range(Nd):
+                deltak=deltarange[k]
+                #least squares
+                #changes[j,k]=np.sum((img0-stack[i+1][delta+deltaj:-(delta-deltaj)-1,delta+deltak:-(delta-deltak)-1])**2)
+                #correlation
+                changes[j,k]=-np.sum((img0*stack[i+1][delta+deltaj:-(delta-deltaj)-1,delta+deltak:-(delta-deltak)-1])**2)
+        idx0,idx1=np.where(changes==np.min(changes))
+        shifts[i]=idx0[0],idx1[0]
+    shifts+= -delta
+    return -np.cumsum(shifts,axis=0)
+
+
+
+
+
+
+
+#%% two_imshow
+def two_imshow(images, absolute_positions, tile_dimensions, i, mask, zoom):
+    row = i // tile_dimensions[1]
+    column = i % tile_dimensions[1]
+    imshape = np.array(images[0].shape)
+
+    if i < tile_dimensions[1]:  # first row
+        j = i - 1
+        ims = [i, j]
+        positions = np.zeros([2, 2], dtype=int)
+        positions[0] = absolute_positions[row, column]
+        positions[1] = absolute_positions[row, column - 1]
+
+    else:
+        if i % tile_dimensions[1] == 0:  # first element of a row
+            j = i - tile_dimensions[1]
+            ims = [i, j]
+            positions = np.zeros([2, 2], dtype=int)
+            positions[0] = absolute_positions[row, column]
+            positions[1] = absolute_positions[row - 1, column]
+        else:
+
+            j = i - tile_dimensions[1]
+            k = i - 1
+            m = j - 1
+            ims = [i, j, k, m]
+            positions = np.zeros([4, 2], dtype=int)
+            positions[0] = absolute_positions[row, column]
+            positions[1] = absolute_positions[row - 1, column]
+            positions[2] = absolute_positions[row, column - 1]
+            positions[3] = absolute_positions[row - 1, column - 1]
+
+    offset = np.min(positions, axis=0)
+    for a in range(len(positions)):
+        positions[a] -= offset
+    offsetsize = np.max(positions, axis=0)
+    canv = np.zeros(imshape + offsetsize)
+    canvmask = np.zeros(imshape + offsetsize)
+    for a in range(len(positions)):
+        canv[
+            positions[a, 0] : positions[a, 0] + imshape[0],
+            positions[a, 1] : positions[a, 1] + imshape[1],
+        ] += images[ims[a]]
+        canvmask[
+            positions[a, 0] : positions[a, 0] + imshape[0],
+            positions[a, 1] : positions[a, 1] + imshape[1],
+        ] += mask
+
+    canvmask[canvmask == 0] = 1
+    res = canv / canvmask
+
+    # shaperes=res.shape
+    if i < tile_dimensions[1]:  # first row
+        x = res.shape[1]
+        xmin = int(x * (zoom / 2))
+        xmax = int(x - xmin)
+        res = res[:, xmin:xmax]
+        for a in range(len(positions)):
+            positions[a, 1] -= xmin
+    else:
+        if i % tile_dimensions[1] == 0:  # first element of a row
+            y = res.shape[0]
+            ymin = int(y * (zoom / 2))
+            res = res[ymin:, :]
+            for a in range(len(positions)):
+                positions[a, 0] -= ymin
+        else:
+            y = res.shape[0]
+            x = res.shape[1]
+            xmin = int(x * (zoom / 2))
+            xmax = int(x - xmin)
+            ymin = int(y * (zoom / 2))
+            res = res[ymin:, xmin:xmax]
+            for a in range(len(positions)):
+                positions[a, 0] -= ymin
+                positions[a, 1] -= xmin
+    return res, positions[0]
+
+
+image_counter = 0
+big_steps=False
+
+#%% manual_correction
+def manual_correction(images, absolute_positions, tile_dimensions, mask, zoom=0.5):
+    abspos = deepcopy(absolute_positions)
+
+    apshape = np.shape(abspos)
+
+    # functions
+    def press(event):
+        global image_counter
+        global big_steps
+        row = image_counter // tile_dimensions[1]
+        column = image_counter % tile_dimensions[1]
+        deltax = -abspos[row, column, 0] + absolute_positions[row, column, 0]
+        deltay = -abspos[row, column, 1] + absolute_positions[row, column, 1]
+
+        if event.key == "b":
+            if big_steps:
+                big_steps=False
+                print("big steps deactivated")
+            else:
+                big_steps=True
+                print("big steps activated")
+                
+        if event.key == "enter":
+            image_counter += 1
+
+            for j in range(column + 1, apshape[1]):
+                absolute_positions[row, j, 0] += deltax
+                absolute_positions[row, j, 1] += deltay
+                abspos[row, j, 0] += deltax
+                abspos[row, j, 1] += deltay
+
+            for i in range(row + 1, apshape[0]):
+                for j in range(column, apshape[1]):
+                    absolute_positions[i, j, 0] += deltax
+                    absolute_positions[i, j, 1] += deltay
+                    abspos[i, j, 0] += deltax
+                    abspos[i, j, 1] += deltay
+
+            deltax = 0
+            deltay = 0
+
+            if image_counter == len(images):
+                plt.close()
+                absolute_positions[:, :, 0] -= np.min(absolute_positions[:, :, 0])
+                absolute_positions[:, :, 1] -= np.min(absolute_positions[:, :, 1])
+                image_counter = 0
+                return 0
+        if event.key == "left":
+            if big_steps:
+                absolute_positions[row, column, 1] += -10
+                deltay += -10                
+            else:
+                absolute_positions[row, column, 1] += -1
+                deltay += -1
+        if event.key == "right":
+            if big_steps:
+                absolute_positions[row, column, 1] += 10
+                deltay += 10                
+            else:
+                absolute_positions[row, column, 1] += 1
+                deltay += 1
+        if event.key == "up":
+            if big_steps:
+                absolute_positions[row, column, 0] += -10
+                deltax += -10                
+            else:
+                absolute_positions[row, column, 0] += -1
+                deltax += -1
+        if event.key == "down":
+            if big_steps:
+                absolute_positions[row, column, 0] += 10
+                deltax += 10                
+            else:
+                absolute_positions[row, column, 0] += 1
+                deltax += 1
+        if event.key == "backspace":
+            if image_counter == 1:
+                pass
+            else:
+                image_counter -= 1
+
+        # print(deltax,deltay)
+
+        # deltax=-abspos[row,column,0]+absolute_positions[row,column,0]
+        # deltay=-abspos[row,column,1]+absolute_positions[row,column,1]
+
+        pic, pos = two_imshow(
+            images, absolute_positions, tile_dimensions, image_counter, mask, zoom
+        )
+        imshape = images[0].shape
+        ax.cla()
+        ax.imshow(pic, cmap="gray")
+        ax.set_title(
+            "image "
+            + str(image_counter)
+            + "   in row "
+            + str(row)
+            + "  and column "
+            + str(column)
+            + "\n $\Delta x=$"
+            + str(deltay)
+            + "        $\Delta y=$"
+            + str(deltax)
+        )
+        xsmin = np.min([pos[0] + imshape[0], pic.shape[0]])
+        xs = [pos[0], pos[0], xsmin, xsmin]
+        ysmin = np.min([pos[1] + imshape[1], pic.shape[1]])
+        ys = [pos[1], ysmin, pos[1], ysmin]
+        ax.plot(ys, xs, "+", c="r", markersize=15)
+        plt.gcf().canvas.draw()
+
+        if event.key == "escape":
+            plt.close()
+            image_counter = 0
+
+    # start program
+    fig, ax = plt.subplots()
+    fig.canvas.mpl_connect("key_press_event", press)
+
+    ax.plot([0, 1], [0, 1], c="w")
+    ax.text(0.3, 0.8, "Manual Image Stitching")
+    ax.text(
+        0.1,
+        0.1,
+        "Use enter to start the program,\n"
+        + "for moving to the next image, when satisfied,\n"
+        + "and to end the program \n(when pressing enter after the last image).\n"
+        + "\nPress backspace to go back to a previous image.\n"
+        + "\nUse left, right, up and down arrow keys to position \nthe image marked "
+        + "by red + showing the corners.\n"
+        + "\nPress 'b' to switch between big steps (10 pixels) "
+        + "and normal steps (1 pixel)"
+        + "\nFor closing the program at any point press esc \n"
+        +"(to reset internal counters).",
+    )
+    plt.show()
 
 #%% pos_from_pcm
 def _pos_from_pcm(pcm, overlap_limits, mode, tolerance, imdim, rdrift, cdrift):

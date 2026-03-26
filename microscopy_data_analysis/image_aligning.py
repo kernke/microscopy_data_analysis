@@ -1,7 +1,6 @@
 """
 @author: kernke
 """
-from copy import deepcopy
 
 import cv2
 import matplotlib.pyplot as plt
@@ -11,11 +10,180 @@ from .general_util import max_from_2d, peak_com2d
 from .image_processing import (
     img_add_weighted_rgba,
     img_gray_to_rgba,
+    img_padding_attenuation,
     img_periodic_tiling,
-    img_to_half_int16,
     img_to_uint16,
-    phase_correlation,
 )
+
+
+def close_translation_by_phase_correlation(im1, im2, 
+                                            sigma=1, max_transl=None):
+    """
+    calculate translation vector between images by phase correlation,
+    assumes 'closeness' as translations less than half of image dimensions
+    
+    Args:
+        im1 (array_like):
+            image 1
+        
+        im2 (array_like):
+            image 2
+
+        sigma (float):
+            width of Gaussian smoothing of correlation matrix
+
+        max_transl (tuple):
+            maximal translation limit enforced by masking the correlation matrix
+
+    Returns:
+        translation_vector (array_like, tuple):
+        
+        certainty (float):
+            normed signal noise ration (max-mean)/std
+    """
+    # dims=im1.shape
+
+    mat = img_correlation(im1-np.mean(im1), im2-np.mean(im2))
+    # matb=cv2.blur(mat,[blur,blur])
+    if sigma is None:
+        mat0=mat-np.min(mat)
+    else:
+        ksize = int(sigma * 4)
+        if ksize % 2 == 0:
+            ksize += 1
+        matb = cv2.GaussianBlur(mat, [ksize, ksize], sigma)  # ,cv2.BORDER_WRAP)
+        mat0 = matb - np.min(matb)
+
+    dims = mat0.shape
+
+    mean = np.mean(mat0)
+    std = np.std(mat0)
+    # print(std)
+    if max_transl:
+        img_mask = np.zeros(dims)
+        img_mask[:max_transl[0] + 1, :max_transl[1] + 1] = 1
+        img_mask[:max_transl[0] + 1, -max_transl[1]:] = 1
+        img_mask[-max_transl[0]:, :max_transl[1] + 1] = 1
+        img_mask[-max_transl[0]:, -max_transl[1]:] = 1
+        # plt.imshow(img_mask)
+    else:
+        img_mask = np.ones(dims)
+
+    matm = mat0 * img_mask
+
+    transl, maxval = max_from_2d(matm)
+    if transl[0] > dims[0] / 2:
+        transl[0] -= dims[0]
+    if transl[1] > dims[1] / 2:
+        transl[1] -= dims[1]
+
+    certainty = (maxval - mean) / std
+    return transl, certainty
+
+
+#%% phase_correlation
+def img_correlation(a, b, padding_ratio=4, pad_mode="mean", pad_attenuation="linear",
+                      pad_parameters=None,cross_correlation=False):
+    """
+    calculate the pase correlation between two images a,b (best with even dimensions)
+    with same shape MxN
+
+    Args:
+        a (MxN array_like): 
+            first image.
+        
+        b (MxN array_like): 
+            second image.
+
+        padding_ratio (float):
+            ratio of biggest dimension of image
+            Defaults to 4    
+        
+        pad_mode (string):
+            same modes as in numpy.pad
+            Defaults to 'mean'
+        
+        pad_attenuation (string):
+            For details see img_padding_attenuation
+            Defaults to 'linear'
+
+        pad_parameters (dictionary):
+            For details see img_padding_attenuation
+            Defaults to None
+
+        cross_correlation (bool):
+            set to 'True' for additionally returning cross correlation matrix
+            Defaults to 'False'
+    Returns:
+        phase_r (MxN array_like): 
+            phase correlation matrix.
+
+        cross_r (MxN array_like):
+            cross correlation matrix
+    """
+    M,N=np.shape(a)
+    padval=int(max(M,N)//padding_ratio)
+    statlength=int(np.ceil(padval/2))
+    pa=np.pad(a,padval,mode=pad_mode,stat_length=statlength)
+    pb=np.pad(b,padval,mode=pad_mode,stat_length=statlength)
+    pa=img_padding_attenuation(pa,padval,mode=pad_attenuation,parameters=pad_parameters)
+    pb=img_padding_attenuation(pb,padval,mode=pad_attenuation,parameters=pad_parameters)
+    if M%2==0 and N%2==0:
+        G_a = np.fft.rfft2(pa)
+        G_b = np.fft.rfft2(pb)
+        conj_b = np.conjugate(G_b)
+        R = G_a * conj_b
+        if cross_correlation:
+            phaseR = R/np.absolute(R)
+            cross_r = np.fft.irfft2(R)
+            phase_r = np.fft.irfft2(phaseR)
+            return phase_r,cross_r  
+        else:
+            R /= np.absolute(R)
+            phase_r = np.fft.irfft2(R)
+            return phase_r
+    else:
+        G_a = np.fft.fft2(pa)
+        G_b = np.fft.fft2(pb)
+        conj_b = np.conjugate(G_b)
+        R = G_a * conj_b
+        if cross_correlation:
+            phaseR = R/np.absolute(R)
+            cross_r = np.fft.ifft2(R).real
+            phase_r = np.fft.ifft2(phaseR).real
+            return phase_r,cross_r  
+        else:
+            R /= np.absolute(R)
+            phase_r = np.fft.ifft2(R).real
+            return phase_r
+
+
+#%% plain phase correlation
+def phase_correlation(a, b):
+    """
+    calculate the pase correlation between two images a,b
+    with same shape MxN
+
+    Args:
+        a (MxN array_like): 
+            first image.
+        
+        b (MxN array_like): 
+            second image.
+
+    Returns:
+        r (MxN array_like): 
+            phase correlation matrix.
+
+    """
+    G_a = np.fft.rfft2(a)
+    G_b = np.fft.rfft2(b)
+    conj_b = np.conjugate(G_b)
+    R = G_a * conj_b
+    R /= np.absolute(R)
+    r = np.fft.irfft2(R)
+    return r
+
 
 #%% stitching
 
@@ -411,259 +579,6 @@ def stack_align(imgs,shifts):
         new[i,nshifts[i,0]:nshifts[i,0]+size[0],nshifts[i,1]:nshifts[i,1]+size[1]]=imgs[i]
     
     return new
-
-#%% fine_tuning_shifts (real space align)
-def fine_tuning_shifts(aligned_stack,delta=4):
-    stack=np.zeros([aligned_stack.shape[0],aligned_stack.shape[1]+1,aligned_stack.shape[2]+1],dtype=np.int16)
-    for i in range(len(stack)):
-
-        stack[i,:-1,:-1]=img_to_half_int16(aligned_stack[i])
-        
-    changes=np.zeros([2*delta+1,2*delta+1])
-    shifts=np.zeros([len(stack),2],dtype=int)
-
-    deltarange=np.arange(-delta,delta+1,1)
-    Nd=len(deltarange)
-    for i in range(len(stack)-1):
-        img0=stack[i][delta:-delta-1,delta:-delta-1]
-        for j in range(Nd):
-            deltaj=deltarange[j]
-            for k in range(Nd):
-                deltak=deltarange[k]
-                #least squares
-                #changes[j,k]=np.sum((img0-stack[i+1][delta+deltaj:-(delta-deltaj)-1,delta+deltak:-(delta-deltak)-1])**2)
-                #correlation
-                changes[j,k]=-np.sum((img0*stack[i+1][delta+deltaj:-(delta-deltaj)-1,delta+deltak:-(delta-deltak)-1])**2)
-        idx0,idx1=np.where(changes==np.min(changes))
-        shifts[i]=idx0[0],idx1[0]
-    shifts+= -delta
-    return -np.cumsum(shifts,axis=0)
-
-
-
-
-
-
-
-#%% two_imshow
-def two_imshow(images, absolute_positions, tile_dimensions, i, mask, zoom):
-    row = i // tile_dimensions[1]
-    column = i % tile_dimensions[1]
-    imshape = np.array(images[0].shape)
-
-    if i < tile_dimensions[1]:  # first row
-        j = i - 1
-        ims = [i, j]
-        positions = np.zeros([2, 2], dtype=int)
-        positions[0] = absolute_positions[row, column]
-        positions[1] = absolute_positions[row, column - 1]
-
-    else:
-        if i % tile_dimensions[1] == 0:  # first element of a row
-            j = i - tile_dimensions[1]
-            ims = [i, j]
-            positions = np.zeros([2, 2], dtype=int)
-            positions[0] = absolute_positions[row, column]
-            positions[1] = absolute_positions[row - 1, column]
-        else:
-
-            j = i - tile_dimensions[1]
-            k = i - 1
-            m = j - 1
-            ims = [i, j, k, m]
-            positions = np.zeros([4, 2], dtype=int)
-            positions[0] = absolute_positions[row, column]
-            positions[1] = absolute_positions[row - 1, column]
-            positions[2] = absolute_positions[row, column - 1]
-            positions[3] = absolute_positions[row - 1, column - 1]
-
-    offset = np.min(positions, axis=0)
-    for a in range(len(positions)):
-        positions[a] -= offset
-    offsetsize = np.max(positions, axis=0)
-    canv = np.zeros(imshape + offsetsize)
-    canvmask = np.zeros(imshape + offsetsize)
-    for a in range(len(positions)):
-        canv[
-            positions[a, 0] : positions[a, 0] + imshape[0],
-            positions[a, 1] : positions[a, 1] + imshape[1],
-        ] += images[ims[a]]
-        canvmask[
-            positions[a, 0] : positions[a, 0] + imshape[0],
-            positions[a, 1] : positions[a, 1] + imshape[1],
-        ] += mask
-
-    canvmask[canvmask == 0] = 1
-    res = canv / canvmask
-
-    # shaperes=res.shape
-    if i < tile_dimensions[1]:  # first row
-        x = res.shape[1]
-        xmin = int(x * (zoom / 2))
-        xmax = int(x - xmin)
-        res = res[:, xmin:xmax]
-        for a in range(len(positions)):
-            positions[a, 1] -= xmin
-    else:
-        if i % tile_dimensions[1] == 0:  # first element of a row
-            y = res.shape[0]
-            ymin = int(y * (zoom / 2))
-            res = res[ymin:, :]
-            for a in range(len(positions)):
-                positions[a, 0] -= ymin
-        else:
-            y = res.shape[0]
-            x = res.shape[1]
-            xmin = int(x * (zoom / 2))
-            xmax = int(x - xmin)
-            ymin = int(y * (zoom / 2))
-            res = res[ymin:, xmin:xmax]
-            for a in range(len(positions)):
-                positions[a, 0] -= ymin
-                positions[a, 1] -= xmin
-    return res, positions[0]
-
-
-image_counter = 0
-big_steps=False
-
-#%% manual_correction
-def manual_correction(images, absolute_positions, tile_dimensions, mask, zoom=0.5):
-    abspos = deepcopy(absolute_positions)
-
-    apshape = np.shape(abspos)
-
-    # functions
-    def press(event):
-        global image_counter
-        global big_steps
-        row = image_counter // tile_dimensions[1]
-        column = image_counter % tile_dimensions[1]
-        deltax = -abspos[row, column, 0] + absolute_positions[row, column, 0]
-        deltay = -abspos[row, column, 1] + absolute_positions[row, column, 1]
-
-        if event.key == "b":
-            if big_steps:
-                big_steps=False
-                print("big steps deactivated")
-            else:
-                big_steps=True
-                print("big steps activated")
-                
-        if event.key == "enter":
-            image_counter += 1
-
-            for j in range(column + 1, apshape[1]):
-                absolute_positions[row, j, 0] += deltax
-                absolute_positions[row, j, 1] += deltay
-                abspos[row, j, 0] += deltax
-                abspos[row, j, 1] += deltay
-
-            for i in range(row + 1, apshape[0]):
-                for j in range(column, apshape[1]):
-                    absolute_positions[i, j, 0] += deltax
-                    absolute_positions[i, j, 1] += deltay
-                    abspos[i, j, 0] += deltax
-                    abspos[i, j, 1] += deltay
-
-            deltax = 0
-            deltay = 0
-
-            if image_counter == len(images):
-                plt.close()
-                absolute_positions[:, :, 0] -= np.min(absolute_positions[:, :, 0])
-                absolute_positions[:, :, 1] -= np.min(absolute_positions[:, :, 1])
-                image_counter = 0
-                return 0
-        if event.key == "left":
-            if big_steps:
-                absolute_positions[row, column, 1] += -10
-                deltay += -10                
-            else:
-                absolute_positions[row, column, 1] += -1
-                deltay += -1
-        if event.key == "right":
-            if big_steps:
-                absolute_positions[row, column, 1] += 10
-                deltay += 10                
-            else:
-                absolute_positions[row, column, 1] += 1
-                deltay += 1
-        if event.key == "up":
-            if big_steps:
-                absolute_positions[row, column, 0] += -10
-                deltax += -10                
-            else:
-                absolute_positions[row, column, 0] += -1
-                deltax += -1
-        if event.key == "down":
-            if big_steps:
-                absolute_positions[row, column, 0] += 10
-                deltax += 10                
-            else:
-                absolute_positions[row, column, 0] += 1
-                deltax += 1
-        if event.key == "backspace":
-            if image_counter == 1:
-                pass
-            else:
-                image_counter -= 1
-
-        # print(deltax,deltay)
-
-        # deltax=-abspos[row,column,0]+absolute_positions[row,column,0]
-        # deltay=-abspos[row,column,1]+absolute_positions[row,column,1]
-
-        pic, pos = two_imshow(
-            images, absolute_positions, tile_dimensions, image_counter, mask, zoom
-        )
-        imshape = images[0].shape
-        ax.cla()
-        ax.imshow(pic, cmap="gray")
-        ax.set_title(
-            "image "
-            + str(image_counter)
-            + "   in row "
-            + str(row)
-            + "  and column "
-            + str(column)
-            + "\n $\Delta x=$"
-            + str(deltay)
-            + "        $\Delta y=$"
-            + str(deltax)
-        )
-        xsmin = np.min([pos[0] + imshape[0], pic.shape[0]])
-        xs = [pos[0], pos[0], xsmin, xsmin]
-        ysmin = np.min([pos[1] + imshape[1], pic.shape[1]])
-        ys = [pos[1], ysmin, pos[1], ysmin]
-        ax.plot(ys, xs, "+", c="r", markersize=15)
-        plt.gcf().canvas.draw()
-
-        if event.key == "escape":
-            plt.close()
-            image_counter = 0
-
-    # start program
-    fig, ax = plt.subplots()
-    fig.canvas.mpl_connect("key_press_event", press)
-
-    ax.plot([0, 1], [0, 1], c="w")
-    ax.text(0.3, 0.8, "Manual Image Stitching")
-    ax.text(
-        0.1,
-        0.1,
-        "Use enter to start the program,\n"
-        + "for moving to the next image, when satisfied,\n"
-        + "and to end the program \n(when pressing enter after the last image).\n"
-        + "\nPress backspace to go back to a previous image.\n"
-        + "\nUse left, right, up and down arrow keys to position \nthe image marked "
-        + "by red + showing the corners.\n"
-        + "\nPress 'b' to switch between big steps (10 pixels) "
-        + "and normal steps (1 pixel)"
-        + "\nFor closing the program at any point press esc \n"
-        +"(to reset internal counters).",
-    )
-    plt.show()
 
 
 

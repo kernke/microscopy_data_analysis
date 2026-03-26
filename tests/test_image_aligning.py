@@ -5,14 +5,14 @@
 
 from numpy.testing import assert_allclose
 
-from microscopy_data_analysis import image_aligning, image_processing
+from microscopy_data_analysis import image_aligning
 
 
 def test_plain_phase_correlation(
         central_pattern_img,
         shifted_pattern_img,
         expected_shift):
-    res=image_processing.phase_correlation(central_pattern_img, shifted_pattern_img)
+    res=image_aligning.phase_correlation(central_pattern_img, shifted_pattern_img)
     assert_allclose(res[expected_shift[0],expected_shift[1]],1.)
 
 def test_stack_shifting(stack):
