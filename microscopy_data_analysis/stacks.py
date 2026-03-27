@@ -221,7 +221,15 @@ class image_stack:
             imgshape = img.shape
         else:
             if self.mode == "storage":
-                imgshape = imagesize.get(self.img_list[0])
+                if self.img_list[0][-3:]=="dm4":
+                    data,metadata=get_dm4_with_metadata(self.img_list[0])
+                    imgshape=data["data"].shape
+
+                elif self.img_list[0][-3:]=="emd":
+                    img,metadata=get_emd_with_metadata(self.img_list[0])
+                    imgshape= img.shape
+                else:
+                    imgshape = imagesize.get(self.img_list[0])
             else:
                 imgshape = self.img_list[0].shape
 
@@ -281,7 +289,8 @@ class image_stack:
             f[dset_name][index, :, :] = img
 
     def create_h5cube_duplicate_for_modifying(self, filename="temp.h5", 
-                                              dset_name="data", force_dtype=False):
+                                    dset_name="data", new_dimensions=None, 
+                                    force_dtype=False):
         """
         Create an h5 file containing the data as 3D-dataset
 
@@ -291,6 +300,12 @@ class image_stack:
 
             dset_name (string): 
                 name or internal path to the dataset
+
+            new_dimensions (tuple):
+                if the original dimensions are a multiple of the new_dimensions
+                cv2.INTER_AREA corresponds to an effective mean value
+                if None, the original dimensions are used
+                Defaults to None
 
             force_dtype (bool): 
                 set to 'True' to not change the datatype,
@@ -314,6 +329,12 @@ class image_stack:
             print("all images must have equal dimensions")
             return 0
         else:
+            if new_dimensions:
+                factor=self.dimensions[0][0]/new_dimensions[0]
+                for i in range(len(self.img_list)):
+                    self.dimensions[i] = new_dimensions
+                self.units_per_pixel *=factor
+                
             newshape = [len(self.img_list), self.dimensions[0][0], 
                         self.dimensions[0][1]]
 
@@ -323,8 +344,12 @@ class image_stack:
             
             for i in tqdm(range(len(self.img_list)), disable=self.no_print):
                 img = self.get_img(i)
-                f[dset_name][i, :, :] = img
-
+                if new_dimensions:
+                    f[dset_name][i, :, :] = cv2.resize(img, new_dimensions,
+                                                       interpolation=cv2.INTER_AREA)
+                    #img_rebin_by_mean(img,self.dimensions[i])
+                else:
+                    f[dset_name][i, :, :] = img
 
     def subtract_dark_field(self, dark_field, dset_name="data", new_dset_name=None):
         """
@@ -1310,7 +1335,7 @@ class image_stack:
         moved_polygons = [
             shapely.affinity.translate(poly, xoff=px - poly.centroid.x, 
                                        yoff=py - poly.centroid.y)
-            for poly, (px, py) in zip(self.polygons, final) ]
+            for poly, (px, py) in zip(self.polygons, final,strict=True) ]
         
         self.moved_polygons=moved_polygons
         return moved_polygons
