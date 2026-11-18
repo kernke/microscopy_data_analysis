@@ -12,6 +12,7 @@ Main features are:
  
  line detection
  
+ specific EDX file reading and analysis
 
 Documentation: https://microscopy-data-analysis.readthedocs.io
 

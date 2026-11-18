@@ -125,8 +125,8 @@ class image_stack:
             if mode == "storage":
                 print("For .h5 provide the path to the h5-file "
                 "(that serves as h5-directory) via the 'set_directory_path' method")
-                print("For .tif, .png, ... image files  either provide  a list of " \
-                "relative or absolute filepaths via 'set_img_list'")
+                print("For .tif, .png, dm4, emd, ... image files  either provide  a " \
+                "list of relative or absolute filepaths via 'set_img_list'")
                 print("or provide the folder containing only the contributing images " \
                 "via 'set_directory_path'")
             if mode == "memory":

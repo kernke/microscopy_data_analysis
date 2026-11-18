@@ -2,7 +2,7 @@ numpy==2.4.0
 opencv-python==4.13.0.92
 numba==0.64.0
 scipy==1.17.1
-h5py==3.15.1
+h5py==3.16.0
 hyperspy==2.4.0
 scikit-image==0.26.0
 shapely==2.1.2
@@ -25,3 +25,4 @@ pandoc==2.4
 Sphinx==8.2.3
 sphinx-autoapi==3.7.0
 sphinx-gallery==0.20.0
+xraydb==4.6.1
