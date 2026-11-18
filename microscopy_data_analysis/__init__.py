@@ -13,4 +13,4 @@ from .line_detection import *
 from .peak_fitting import *
 from .stacks import *
 from .visualisation import *
-form .edx_functions import *
+from .edx_functions import *
