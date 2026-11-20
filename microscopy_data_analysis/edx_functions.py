@@ -2,12 +2,21 @@ from itertools import cycle
 from pathlib import Path
 
 import h5py
+import hyperspy.api as hs
 import matplotlib.pyplot as plt
 import numpy as np
-import xraydb
+import exspy as exs
 from matplotlib.patches import Rectangle
+from matplotlib.legend import Legend
 from matplotlib.ticker import MaxNLocator
 from scipy.interpolate import UnivariateSpline
+
+
+_ELEMENT_SYMBOLS = {
+    properties["General_properties"]["Z"]: symbol
+    for symbol, properties in exs.material.elements.as_dictionary().items()
+    if isinstance(properties, dict) and "General_properties" in properties
+}
 
 
 def auto_h5path(filepath,verbose=True):
@@ -262,8 +271,41 @@ def _plot_colors(mpl_colorlist):
     return colors
 
 
+def _place_plot_legends(ax, legend_outside=True, element_handles=None):
+    """Place measurement labels first and optional element labels below them."""
+    ax.figure.set_layout_engine("constrained")
+    if element_handles is None:
+        handles, labels = ax.get_legend_handles_labels()
+        primary = ax.legend(
+            handles, labels, loc="upper left" if legend_outside else "upper right",
+            bbox_to_anchor=(1.02, 1) if legend_outside else None,
+        )
+        ax._edx_primary_legend = primary
+        return
+
+    primary = getattr(ax, "_edx_primary_legend", ax.get_legend())
+    previous = getattr(ax, "_edx_element_legend", None)
+    if previous is not None:
+        previous.remove()
+    if primary is not None:
+        primary.set_loc("upper left" if legend_outside else "upper right")
+        primary.set_bbox_to_anchor((1.02, 1) if legend_outside else (1, 1))
+    secondary = Legend(
+        ax, element_handles, [handle.get_label() for handle in element_handles], loc="upper left",
+        bbox_to_anchor=(1.02, 1) if legend_outside else None,
+    )
+    ax.add_artist(secondary)
+    ax._edx_element_legend = secondary
+    if legend_outside and primary is not None:
+        ax.figure.canvas.draw()
+        bottom = ax.transAxes.inverted().transform(
+            primary.get_window_extent(ax.figure.canvas.get_renderer()).corners()[0]
+        )[1]
+        secondary.set_bbox_to_anchor((1.02, bottom - 0.025))
+
+
 def plot_0D_image(experiment, area, mpl_colorlist=None, name_list=None,
-                  digits_smaller_microns=1, mask=None):
+                  digits_smaller_microns=1, mask=None, legend_outside=True):
     """Plot the field-of-view image and measurement regions for a 0D entry.
 
     Pass the dictionary from `extract_data` and a key such as
@@ -274,6 +316,7 @@ def plot_0D_image(experiment, area, mpl_colorlist=None, name_list=None,
     the field dimensions. Skip measurements whose mask entries are true.
     The title includes the visible measurements' beam voltages.
     Return the axes.
+    Set legend_outside=False to place legends inside the plotting rectangle.
     """
     entry = experiment[area]
     regions = entry["regions_pix"]
@@ -295,12 +338,11 @@ def plot_0D_image(experiment, area, mpl_colorlist=None, name_list=None,
             ))
 
     if indices:
-        ax.legend()
-    ax.figure.tight_layout()
+        _place_plot_legends(ax, legend_outside)
     return ax
 
 
-def plot_1D_image(experiment, area, digits_smaller_microns=1, mask=None):
+def plot_1D_image(experiment, area, digits_smaller_microns=1, mask=None, legend_outside=True):
     """Plot LineScan endpoints and dashed paths on the field-of-view image.
 
     Pass the dictionary from `extract_data` and a key such as
@@ -309,6 +351,7 @@ def plot_1D_image(experiment, area, digits_smaller_microns=1, mask=None):
     Use `digits_smaller_microns` decimal places for the field dimensions.
     Skip LineScans whose mask entries are true. The title includes the
     visible LineScans' beam voltages. Return the axes.
+    Set legend_outside=False to place legends inside the plotting rectangle.
     """
     entry = experiment[area]
     height, width = entry["image"].shape[:2]
@@ -323,8 +366,7 @@ def plot_1D_image(experiment, area, digits_smaller_microns=1, mask=None):
         x_start, y_start, x_end, y_end = endpoints.T
         ax.scatter(x_start, y_start, color="tab:green", label="Start", zorder=3)
         ax.scatter(x_end, y_end, color="tab:red", label="End", zorder=3)
-        ax.legend()
-    ax.figure.tight_layout()
+        _place_plot_legends(ax, legend_outside)
     return ax
 
 
@@ -340,14 +382,17 @@ def plot_2D_image(experiment, area, index=0, digits_smaller_microns=1):
     return ax
 
 
-def plot_1D_maps(experiment, area, index=0, mask=None, mpl_colorlist=None):
+def plot_1D_maps(experiment, area, index=0, mask=None, mpl_colorlist=None,
+                 logscale_y=False, legend_outside=True):
     """Plot elemental profiles and two image strips for one LineScan.
 
     Select the scan with `index` and hide element symbols listed in `mask`.
     Colors cycle through `mpl_colorlist` or the Matplotlib defaults.
     Plot distance from the start in micrometers. The grayscale SE and
     plasma X-ray counts strips each occupy 10 percent of the y-range
-    below zero. Return the profile axes.
+    below zero. With logscale_y=True, use a positive count axis starting at
+    0.5 and a separate strip axis below it. Return the profile axes.
+    Set legend_outside=False to place legends inside the plotting rectangle.
     """
     if mask is None:
         mask = []
@@ -360,7 +405,16 @@ def plot_1D_maps(experiment, area, index=0, mask=None, mpl_colorlist=None):
     field_width, field_height = entry["image_width_height_mm"]
     distance_um = 1000 * np.hypot((x2 - x1) * field_width, (y2 - y1) * field_height)
 
-    fig, ax = plt.subplots(layout="constrained")
+    fig = plt.figure(layout="constrained")
+    if logscale_y:
+        grid = fig.add_gridspec(2, 1, height_ratios=(4, 1), hspace=0)
+        ax = fig.add_subplot(grid[0])
+        strip_ax = fig.add_subplot(grid[1], sharex=ax)
+        ax.tick_params(axis="x", labelbottom=False)
+        strip_ax.set_yticks([])
+    else:
+        ax = fig.add_subplot()
+        strip_ax = ax
     peak_count = 0
     for profile, element, orbital, color in zip(
         entry["element_maps"][index], entry["elements"][index], orbitals,
@@ -372,8 +426,8 @@ def plot_1D_maps(experiment, area, index=0, mask=None, mpl_colorlist=None):
             ax.plot(distances, counts, color=color, label=f"{element} {orbital}")
             peak_count = max(peak_count, np.max(counts, initial=0))
 
-    top = 1.05 * peak_count if peak_count > 0 else 1
-    stripe_height = top / 8
+    top = max(1, 1.05 * peak_count) if logscale_y else (1.05 * peak_count if peak_count > 0 else 1)
+    stripe_height = 1 if logscale_y else top / 8
     for image, cmap, bottom in (
         (se_image, "gray", -2 * stripe_height),
         (cps, "plasma", -stripe_height),
@@ -383,25 +437,29 @@ def plot_1D_maps(experiment, area, index=0, mask=None, mpl_colorlist=None):
         half_step = distance_um / (2 * (image.size - 1)) if image.size > 1 else 0
         left = -half_step if distance_um else -0.5
         right = distance_um + half_step if distance_um else 0.5
-        strip = ax.imshow(
+        strip = strip_ax.imshow(
             image, cmap=cmap, aspect="auto", interpolation="nearest", zorder=0,
             extent=(left, right, bottom, bottom + stripe_height),
         )
         if cmap == "plasma":
-            colorbar = fig.colorbar(strip, ax=ax, label="X-ray Counts")
+            colorbar = fig.colorbar(strip, ax=[ax, strip_ax] if logscale_y else ax, label="X-ray Counts")
             colorbar.ax.set_xlabel("Greyscale\nSE-Image")
 
     area_label = area.split(" spatial ", 1)[0]
     ax.set(title=f"{area_label} at {entry['BeamKV'][index]:g} kV",
-           xlabel="Distance from start (µm)", ylabel="Counts",
-           ylim=(-2 * stripe_height, top))
+           ylabel="Counts", ylim=(0.5 if logscale_y else -2 * stripe_height, top))
+    strip_ax.set_xlabel("Distance from start (µm)")
+    if logscale_y:
+        ax.set_yscale("log", nonpositive="mask")
+        strip_ax.set_ylim(-2, 0)
     ax.set_xlim((0, distance_um) if distance_um else (-0.5, 0.5))
     if not distance_um:
         ax.set_xticks([0])
-    ticks = MaxNLocator(nbins=6).tick_values(0, top)
-    ax.set_yticks(ticks[(0 <= ticks) & (ticks <= top)])
+    if not logscale_y:
+        ticks = MaxNLocator(nbins=6).tick_values(0, top)
+        ax.set_yticks(ticks[(0 <= ticks) & (ticks <= top)])
     if ax.lines:
-        ax.legend()
+        _place_plot_legends(ax, legend_outside)
     return ax
 
 
@@ -530,7 +588,7 @@ def _set_spectrum_y_axis(ax, peak_count, logscale_y_minimum):
 
 
 def plot_0D_spectra(experiment, area, mpl_colorlist=None, name_list=None, mask=None,
-                    normalize="none", logscale_y_minimum=0):
+                    normalize="none", logscale_y_minimum=0, legend_outside=True):
     """Plot the energy and counts spectra for a 0D experiment entry.
 
     Legend labels and colors use the same options as `plot_0D_image`.
@@ -547,6 +605,7 @@ def plot_0D_spectra(experiment, area, mpl_colorlist=None, name_list=None, mask=N
     y-axis and hides nonpositive counts. Zero uses a linear y-axis.
     An empty selection yields empty axes with the area name as the title.
     Return the axes.
+    Set legend_outside=False to place legends inside the plotting rectangle.
     """
     if not np.isfinite(logscale_y_minimum) or logscale_y_minimum < 0:
         raise ValueError("logscale_y_minimum must be finite and nonnegative.")
@@ -574,10 +633,9 @@ def plot_0D_spectra(experiment, area, mpl_colorlist=None, name_list=None, mask=N
             print("Mutltiple BeamKV values present!")
         beam_kv = max(voltages)
         ax.set(title=f"{area_label} at {beam_kv:g} kV", xlim=(0, beam_kv))
-        ax.legend(loc="upper right")
+        _place_plot_legends(ax, legend_outside)
     if indices or logscale_y_minimum > 0:
         _set_spectrum_y_axis(ax, peak_count, logscale_y_minimum)
-    ax.figure.tight_layout()
     return ax
 
 def get_x_axis(spectrum):
@@ -590,7 +648,7 @@ def get_x_axis(spectrum):
     return energies
 
 
-def plot_spectrum_from_map(experiment, area, index=0, logscale_y=False):
+def plot_spectrum_from_map(experiment, area, index=0, logscale_y=False, legend_outside=True):
     """Plot the average and peak-location spectra from a LineScan or Live Map.
 
     Select the dataset with `index`. The final axis contains energy
@@ -600,6 +658,7 @@ def plot_spectrum_from_map(experiment, area, index=0, logscale_y=False):
     With `logscale_y=True`, use the smallest positive average count as the
     lower limit, or 0.5 counts if the average has no positive values.
     Return the axes.
+    Set legend_outside=False to place legends inside the plotting rectangle.
     """
     entry = experiment[area]
     dataset = np.asarray(entry["dataset"][index])
@@ -622,8 +681,288 @@ def plot_spectrum_from_map(experiment, area, index=0, logscale_y=False):
     ax.set(title=f"{area_label} at {beam_kv:g} kV", xlim=(0, beam_kv),
            xlabel="Photon energy (keV)", ylabel="Counts")
     _set_spectrum_y_axis(ax, dataset[max_index], lower_limit)
-    ax.legend(loc="upper right")
-    fig.tight_layout()
+    _place_plot_legends(ax, legend_outside)
+    return ax
+
+
+def _snip_background(counts, half_window):
+    """Estimate a nonnegative background using LLS-transformed SNIP clipping."""
+    baseline = np.log1p(np.log1p(np.sqrt(counts + 1)))
+    for offset in range(1, min(half_window, (len(counts) - 1) // 2) + 1):
+        neighbors = (baseline[:-2 * offset] + baseline[2 * offset:]) / 2
+        baseline[offset:-offset] = np.minimum(baseline[offset:-offset], neighbors)
+    return np.maximum((np.expm1(np.expm1(baseline))) ** 2 - 1, 0)
+
+
+def _spectrum_fit_metadata(model, energy, counts, fitted, background,
+                           detector_resolution, beam_voltage, method, options, selected,
+                           force_positive_peaks):
+    """Collect every Gaussian line component and the arrays needed to plot a fit."""
+    peaks = []
+    channel_width = energy[1] - energy[0]
+    for component in model:
+        if component in model.background_components:
+            continue
+        element, line = component.name.split("_", 1)
+        centre = float(component.centre.value)
+        sigma = float(component.sigma.value)
+        area = float(component.A.value)
+        parent = component.A.twin
+        peaks.append({
+            "name": component.name,
+            "element": element,
+            "orbital": line[0],
+            "energy_keV": centre,
+            "sigma_keV": sigma,
+            "fwhm_eV": 1000 * sigma * np.sqrt(8 * np.log(2)),
+            "area_counts": area,
+            "height_counts": area * channel_width / (sigma * np.sqrt(2 * np.pi)),
+            "relative_weight": float(
+                exs.material.elements[element].Atomic_properties.Xray_lines[line].weight
+            ),
+            "tied_to": parent.component.name if parent is not None else None,
+            "amplitude_expression": component.A.twin_function_expr if parent is not None else None,
+            "in_fit_range": bool(energy[selected][0] <= centre <= energy[selected][-1]),
+        })
+    return {
+        "energy_keV": energy.copy(),
+        "measured_counts": counts.copy(),
+        "fitted_counts": fitted,
+        "background_counts": background,
+        "BeamKV": float(beam_voltage),
+        "DetectorResolution": float(detector_resolution),
+        "background_method": method,
+        "background_options": dict(options),
+        "force_positive_peaks": bool(force_positive_peaks),
+        "fit_range_keV": (float(energy[selected][0]), float(energy[selected][-1])),
+        "peaks": sorted(peaks, key=lambda peak: peak["energy_keV"]),
+    }
+
+
+def _finish_spectrum_fit(model, energy, counts, fitted, background, detector_resolution,
+                         beam_voltage, method, options, selected, force_positive_peaks,
+                         extrapolate_background):
+    """Optionally extend the low-energy background and package the fit outputs."""
+    below_fit = energy < energy[selected][0]
+    if extrapolate_background and below_fit.any():
+        first_channels = np.flatnonzero(selected)[:6]
+        first = first_channels[0]
+        slope = np.polyfit(energy[first_channels] - energy[first], background[first_channels], 1)[0]
+        background[below_fit] = np.maximum(
+            background[first] + slope * (energy[below_fit] - energy[first]), 0
+        )
+        peak_components = [component for component in model if component not in model.background_components]
+        peak_counts = model.as_signal(
+            component_list=peak_components, out_of_range_to_nan=False, show_progressbar=False
+        ).data
+        fitted[below_fit] = background[below_fit] + peak_counts[below_fit]
+    metadata = _spectrum_fit_metadata(
+        model, energy, counts, fitted, background, detector_resolution,
+        beam_voltage, method, options, selected, force_positive_peaks,
+    )
+    metadata["background_extrapolation"] = "linear" if extrapolate_background else None
+    metadata["extrapolated_mask"] = below_fit & extrapolate_background
+    metadata["background_subtracted_counts"] = counts - background
+    return fitted, background, metadata
+
+
+def fit_eds_spectrum(energy, counts, elements, orbitals, detector_resolution, beam_voltage,
+                     background_method="polynomial", background_options=None,
+                     force_positive_peaks=False, fit_minimum_keV=0.2,
+                     extrapolate_background=False):
+    """Return total fitted counts, background, and a peak metadata dictionary.
+
+    Supply energy in keV on a uniform grid, channel counts, parallel element
+    and K/L/M shell lists, detector FWHM at Mn Ka in eV, and beam voltage in kV.
+    Both output arrays match the input. Fit from fit_minimum_keV (default
+    0.2) to the beam energy. Set fit_minimum_keV=0 to include lower channels
+    directly, or extrapolate_background=True to fill channels below the
+    fit with a linear background extension and the fitted peak tails.
+    The extension uses the slope of the first six fitted background channels,
+    stays continuous at the boundary, and is clipped at zero. Metadata marks
+    extrapolated channels. Values above the fitted interval remain NaN.
+
+    Choose a background_method and optional background_options dictionary.
+    'polynomial' fits outside peak windows and accepts 'order' (default 6).
+    'snip' clips peaks in log-log-square-root transformed counts and accepts
+    'window_keV', the maximum half-window (default 0.4 keV).
+    'spline' fits outside four-sigma peak windows with Poisson-noise weights,
+    and accepts a nonnegative 'smoothing' multiplier (default 1).
+
+    The background is held fixed during the linear least-squares peak fit.
+    Set force_positive_peaks=True to use nonnegative least squares for the
+    peak amplitudes, including their tied subsidiary peaks. The default
+    permits negative amplitudes. SNIP and spline backgrounds are
+    clipped at zero. Background settings should be checked against residuals.
+    Metadata includes all Gaussian components, including tied subsidiary lines,
+    with their energies, widths, fitted areas and heights, database weights,
+    and amplitude ties. It also stores the arrays for plot_fitted_spectrum.
+    Areas are integrated counts and heights are counts per channel.
+    """
+    energy = np.asarray(energy, dtype=float)
+    counts = np.asarray(counts, dtype=float)
+    elements, orbitals = list(elements), list(orbitals)
+    if energy.ndim != 1 or counts.shape != energy.shape or energy.size < 2:
+        raise ValueError("energy and counts must be matching 1D arrays with at least two channels.")
+    if not np.isfinite(energy).all() or not np.isfinite(counts).all() or (counts < 0).any():
+        raise ValueError("energy must be finite and counts must be finite and nonnegative.")
+    step = energy[1] - energy[0]
+    if step <= 0 or not np.allclose(np.diff(energy), step):
+        raise ValueError("energy must be uniformly increasing.")
+    if len(elements) != len(orbitals) or any(shell not in ("K", "L", "M") for shell in orbitals):
+        raise ValueError("Provide one K, L, or M orbital per element.")
+    if not np.isfinite(detector_resolution) or detector_resolution <= 0:
+        raise ValueError("detector_resolution must be positive and finite.")
+    if not np.isfinite(fit_minimum_keV) or fit_minimum_keV < 0:
+        raise ValueError("fit_minimum_keV must be finite and nonnegative.")
+    if not np.isfinite(beam_voltage) or beam_voltage <= fit_minimum_keV:
+        raise ValueError("beam_voltage must be finite and greater than fit_minimum_keV.")
+
+    option_names = {"polynomial": "order", "snip": "window_keV", "spline": "smoothing"}
+    if background_method not in option_names:
+        raise ValueError("background_method must be 'polynomial', 'snip', or 'spline'.")
+    options = dict(background_options or {})
+    peak_optimizer = "nnls" if force_positive_peaks else "lstsq"
+    if options.keys() - {option_names[background_method]}:
+        raise ValueError(f"Unsupported options for {background_method}.")
+    fit_minimum, fit_maximum = max(fit_minimum_keV, energy[0]), min(beam_voltage, energy[-1])
+    selected = (energy >= fit_minimum) & (energy <= fit_maximum)
+    if selected.sum() < 8:
+        raise ValueError("The fitting interval must contain at least eight channels.")
+
+    signal = hs.signals.Signal1D(counts.copy())
+    signal.set_signal_type("EDS_SEM")
+    axis = signal.axes_manager.signal_axes[0]
+    axis.name, axis.units = "Energy", "keV"
+    axis.offset, axis.scale, axis.is_binned = float(energy[0]), float(step), True
+    signal.set_microscope_parameters(
+        beam_energy=float(beam_voltage), energy_resolution_MnKa=float(detector_resolution)
+    )
+    signal.set_lines(sorted({
+        f"{element}_{orbital}a" for element, orbital in zip(elements, orbitals)
+    }))
+    model = signal.create_model(auto_background=False)
+    model.set_signal_range_from_mask(selected)
+
+    if background_method == "polynomial":
+        order = options.get("order", 6)
+        if not isinstance(order, (int, np.integer)) or not 0 <= order < selected.sum():
+            raise ValueError("Polynomial order must be a nonnegative integer below the channel count.")
+        model.add_polynomial_background(order=order)
+        model.fit_background(start_energy=fit_minimum, end_energy=fit_maximum, optimizer="lstsq")
+        model.set_signal_range_from_mask(selected)
+        model.fit(optimizer=peak_optimizer, calculate_errors=not force_positive_peaks)
+        fitted = model.as_signal(show_progressbar=False).data.copy()
+        background = model.as_signal(
+            component_list=model.background_components, show_progressbar=False
+        ).data.copy()
+        return _finish_spectrum_fit(
+            model, energy, counts, fitted, background, detector_resolution,
+            beam_voltage, background_method, options, selected, force_positive_peaks,
+            extrapolate_background,
+        )
+
+    fit_energy, fit_counts = energy[selected], counts[selected]
+    if background_method == "snip":
+        window = options.get("window_keV", 0.4)
+        if not np.isfinite(window) or window <= 0:
+            raise ValueError("SNIP window_keV must be positive and finite.")
+        estimated = _snip_background(fit_counts, max(1, int(np.ceil(window / step))))
+    else:
+        smoothing = options.get("smoothing", 1)
+        if not np.isfinite(smoothing) or smoothing < 0:
+            raise ValueError("Spline smoothing must be finite and nonnegative.")
+        anchors = np.ones(len(fit_energy), dtype=bool)
+        for component in model:
+            anchors &= np.abs(fit_energy - component.centre.value) > 4 * component.sigma.value
+        if anchors.sum() < 4:
+            raise ValueError("Too few peak-free channels for a cubic spline background.")
+        spline = UnivariateSpline(
+            fit_energy[anchors], fit_counts[anchors],
+            w=1 / np.sqrt(np.maximum(fit_counts[anchors], 1)),
+            s=smoothing * anchors.sum(), ext=3,
+        )
+        estimated = np.maximum(spline(fit_energy), 0)
+    background = np.full(counts.shape, np.nan)
+    background[selected] = estimated
+    signal.data[selected] = fit_counts - estimated
+    model.fit(optimizer=peak_optimizer, calculate_errors=not force_positive_peaks)
+    fitted = model.as_signal(show_progressbar=False).data.copy() + background
+    return _finish_spectrum_fit(
+        model, energy, counts, fitted, background, detector_resolution,
+        beam_voltage, background_method, options, selected, force_positive_peaks,
+        extrapolate_background,
+    )
+
+
+def fit_0D_measurement(experiment, area, background_method="polynomial",
+                       background_options=None, force_positive_peaks=False,
+                       fit_minimum_keV=0.2, extrapolate_background=False):
+    """Fit all spectra in a 0D entry and store results in its fit dictionary.
+
+    Read the spectra, elements, shell labels, resolution, and beam voltage
+    from the experiment entry. Each measurement name maps to fitted,
+    background, and fit_metadata. Forward background, fit-range, and positivity options
+    to fit_eds_spectrum. Return the stored dictionary after all fits succeed.
+    """
+    entry = experiment[area]
+    fits = {}
+    for index, name in enumerate(entry["measurements"]):
+        energy, counts = entry["spectrum"][index]
+        metadata = entry["metadata"][index]
+        fitted, background, fit_metadata = fit_eds_spectrum(
+            energy, counts, entry["elements"][index], metadata["orbitals"],
+            metadata["DetectorResolution"], entry["BeamKV"][index],
+            background_method=background_method, background_options=background_options,
+            force_positive_peaks=force_positive_peaks,
+            fit_minimum_keV=fit_minimum_keV, extrapolate_background=extrapolate_background,
+        )
+        fits[name] = {
+            "fitted": fitted, "background": background, "fit_metadata": fit_metadata,
+        }
+    entry["fit"] = fits
+    return fits
+
+
+def plot_fitted_spectrum(metadata, title=None, logscale_y=False, legend_outside=True):
+    """Plot one measured and fitted spectrum and label all modelled peak lines.
+
+    Pass the metadata returned by fit_eds_spectrum. Labels include subsidiary
+    lines and negative fitted peaks within the fitting interval. A positive
+    count lower limit is chosen automatically for a logarithmic y-axis.
+    Return the single Matplotlib axes.
+    Set legend_outside=False to place legends inside the plotting rectangle.
+    """
+    energy = metadata["energy_keV"]
+    measured = metadata["measured_counts"]
+    fitted = metadata["fitted_counts"]
+    peaks = [peak for peak in metadata["peaks"] if peak["in_fit_range"]]
+    fig, ax = plt.subplots(figsize=(12, 6), layout="constrained")
+    ax.plot(energy, measured, label="Measured", linewidth=0.8)
+    ax.plot(energy, fitted, label="Fitted", linewidth=0.9)
+    finite = np.isfinite(fitted)
+    peak_count = max(np.max(measured, initial=0), np.max(fitted[finite], initial=0))
+    lower = 0
+    if logscale_y:
+        positive = measured[measured > 0]
+        lower = positive.min() if positive.size else 0.5
+    _set_spectrum_y_axis(ax, peak_count, lower)
+    # Reserve space above the data for the line labels.
+    ax.set_ylim(top=max(1, peak_count * 1.4, lower * 2))
+    ax.set(
+        xlim=(0, metadata["BeamKV"]), xlabel="Photon energy (keV)", ylabel="Counts",
+        title=title or f"Fitted spectrum at {metadata['BeamKV']:g} kV",
+    )
+    for peak, position in zip(peaks, np.linspace(0.025, 0.975, len(peaks))):
+        centre = peak["energy_keV"]
+        y = max(lower, float(np.interp(centre, energy[finite], fitted[finite])))
+        ax.annotate(
+            peak["name"].replace("_", " "), xy=(centre, y),
+            xytext=(position, 0.98), textcoords="axes fraction",
+            rotation=90, ha="center", va="top", fontsize=7,
+            arrowprops={"arrowstyle": "-", "color": "0.6", "linewidth": 0.5},
+        )
+    _place_plot_legends(ax, legend_outside)
     return ax
 
 
@@ -634,7 +973,10 @@ def get_1D_spectra(filepath,h5path,kp):
     `(spectra, metadata, elements, weight_fractions, atomic_percentages)`
     as five lists in input order. Each spectrum has two rows
     containing photon energies in keV and counts. Each metadata dictionary
-    comes from the measurement's HOSTPARAMS record. The composition values
+    comes from HOSTPARAMS with SPC `DetectorResolution` (FWHM at Mn Ka,
+    in eV) and `orbitals`
+    from SPC ZShells, aligned with the returned elements (1=K, 2=L, 3=M).
+    Unrecognized or unavailable shell codes yield None. The composition values
     follow the nonzero SPC atomic numbers. Atomic percentages are NaN
     when elements are present but their weight fraction is zero.
     """
@@ -658,10 +1000,20 @@ def get_1D_spectra(filepath,h5path,kp):
             valid = atomic_numbers != 0
             atomic_numbers = atomic_numbers[valid]
             weights = weights[valid]
-            elements.append([xraydb.atomic_symbol(int(z)) for z in atomic_numbers])
+            elements.append([_ELEMENT_SYMBOLS[int(z)] for z in atomic_numbers])
+            if "ZShells" in spc.dtype.names:
+                shells = np.asarray(spc["ZShells"]).reshape(-1)[:n][valid]
+            else:
+                shells = np.zeros(len(atomic_numbers), dtype=int)
+            metadata[-1]["orbitals"] = [
+                {1: "K", 2: "L", 3: "M"}.get(int(shell)) for shell in shells
+            ]
             weight_fractions.append(weights)
 
-            masses = np.array([xraydb.atomic_mass(int(z)) for z in atomic_numbers])
+            masses = np.array([
+                exs.material.elements[symbol].General_properties.atomic_weight
+                for symbol in elements[-1]
+            ])
             moles = weights / masses
             total_moles = moles.sum()
             percentages = np.full(moles.shape, np.nan)
@@ -671,14 +1023,16 @@ def get_1D_spectra(filepath,h5path,kp):
 
 
 def _get_host_metadata(measurement):
-    """Read selected first-record HOSTPARAMS values and standardize KV and WD."""
+    """Read host settings and the SPC detector resolution at Mn Ka in eV."""
     hostparams = measurement["HOSTPARAMS"][()]
     field_names = {"KV": "BeamKV", "WD": "WorkingDistanceMm"}
-    return {
+    metadata = {
         field_names.get(field, field): hostparams[field][0]
         for field in hostparams.dtype.names
         if field not in ("AutoColCtl", "BeamCurrent", "Id")
     }
+    metadata["DetectorResolution"] = float(measurement["SPC"]["DetectorResoultion"][0])
+    return metadata
 
 
 def get_map(filepath, h5path, kp):
@@ -793,42 +1147,35 @@ def get_linescan(filepath, h5path, kp):
 
 
 
-def get_xray_lines_xraydb(elements):
-    """Look up characteristic X-ray lines for element symbols using XrayDB.
+def get_xray_lines_exspy(elements):
+    """Return eXSpy line energies, family weights, and names by atomic number.
 
-    Return a dictionary keyed by atomic number. Each value contains arrays
-    of energies in keV, intensities, line names, and initial-to-final
-    level labels, sorted by energy.
+    Each value contains four parallel arrays, sorted by energy. Energies
+    are in keV and names use eXSpy notation such as Ka and Lb1. The fourth
+    array contains None because this database supplies no transition-level
+    labels. Weights are relative within each shell family.
     """
-    line_spec={}
-    for elem in elements:
-        #z=exs.material.elements[elem].General_properties.Z
-        z = xraydb.atomic_number(elem)
-        energies=[]
-        intensities=[]
-        names=[]
-        name_levels=[]
-        for key, val in xraydb.xray_lines(elem).items():
-            levels = '%s-%s' % (val.initial_level, val.final_level)  # noqa: UP031
-            energies.append(val.energy)
-            intensities.append(val.intensity)
-            names.append(key)
-            name_levels.append(levels)
-
-        sortidx=np.argsort(energies)
-        energies=np.array(energies)
-        intensities=np.array(intensities)
-        names=np.array(names)
-        name_levels=np.array(name_levels)
-        
-        line_spec[z]=[energies[sortidx]/1000,intensities[sortidx],names[sortidx],name_levels[sortidx]]
-
+    line_spec = {}
+    for element in elements:
+        properties = exs.material.elements[element]
+        lines = {
+            name: line for name, line in properties.Atomic_properties.Xray_lines.as_dictionary().items()
+            if isinstance(line, dict) and "energy (keV)" in line
+        }
+        names = np.array(list(lines))
+        energies = np.array([line["energy (keV)"] for line in lines.values()])
+        weights = np.array([line["weight"] for line in lines.values()])
+        order = np.argsort(energies)
+        line_spec[properties.General_properties.Z] = [
+            energies[order], weights[order], names[order],
+            np.full(len(names), None, dtype=object),
+        ]
     return line_spec
 
 
-
-def plot_xray_lines_xraydb(ax, elements, linefactor=0.5, mpl_colorlist=None,
-                           energie_range=None, dashed=True, linewidth=0.75):
+def plot_xray_lines_exspy(ax, elements, linefactor=0.5, mpl_colorlist=None,
+                           energie_range=None, dashed=True, linewidth=0.75,
+                           legend_outside=True):
     """Overlay characteristic X-ray lines and add a separate element legend.
 
     Draw lines within the current x-limits and the optional exclusive
@@ -837,6 +1184,7 @@ def plot_xray_lines_xraydb(ax, elements, linefactor=0.5, mpl_colorlist=None,
     Heights use axes coordinates on both linear and logarithmic y-scales.
     Set `dashed` to add full-height guides. Colors cycle through
     `mpl_colorlist` or the Matplotlib defaults. Return `ax`.
+    Set legend_outside=False to place legends inside the plotting rectangle.
     """
     if not 0 <= linefactor <= 1:
         raise ValueError("linefactor must be between 0 and 1.")
@@ -847,10 +1195,10 @@ def plot_xray_lines_xraydb(ax, elements, linefactor=0.5, mpl_colorlist=None,
         highest = min(highest, energie_range[1])
 
     elements = list(elements)
-    line_spec = get_xray_lines_xraydb(elements)
+    line_spec = get_xray_lines_exspy(elements)
     visible_lines = []
     for element, color in zip(elements, cycle(_plot_colors(mpl_colorlist))):
-        energies, intensities, *_ = line_spec[xraydb.atomic_number(element)]
+        energies, intensities, *_ = line_spec[exs.material.elements[element].General_properties.Z]
         visible = (lowest < energies) & (energies < highest)
         if visible.any():
             visible_lines.append((element, color, energies[visible], intensities[visible]))
@@ -870,11 +1218,13 @@ def plot_xray_lines_xraydb(ax, elements, linefactor=0.5, mpl_colorlist=None,
                 line.set_label(element)
                 handles.append(line)
 
-    previous_legend = ax.get_legend()
-    if previous_legend is not None:
-        ax.add_artist(previous_legend)
-    ax.legend(handles=handles, loc="upper left")
+    _place_plot_legends(ax, legend_outside, element_handles=handles)
     return ax
+
+# Compatibility names for callers written before the eXSpy backend change.
+get_xray_lines_xraydb = get_xray_lines_exspy
+plot_xray_lines_xraydb = plot_xray_lines_exspy
+
 
 def create_all_figures(experiment, output_path, element_list=None, logscale_y_minimum=0.5):
     """Save the figures for each spatial entry as PNGs in `output_path`.
@@ -917,26 +1267,28 @@ def create_all_figures(experiment, output_path, element_list=None, logscale_y_mi
                         elements = sorted({element for group in entry["elements"] for element in group})
                     else:
                         elements = element_list
-                    plot_xray_lines_xraydb(result, elements)
+                    plot_xray_lines_exspy(result, elements)
                 fig.savefig(output_dir / f"{area} {suffix}.png")
             finally:
                 plt.close(fig)
 
 
-def get_background(spectrum,elements,peak_width=0.25,noise_level=150,plotting=True):
+def get_background(spectrum,elements,peak_width=0.25,noise_level=150,plotting=True,
+                   legend_outside=True):
     """Estimate the background of a two-row energy and counts spectrum.
 
-    Exclude channels within `peak_width` keV of XrayDB lines for the supplied
+    Exclude channels within `peak_width` keV of eXSpy lines for the supplied
     element symbols, interpolate across the excluded channels, and fit a
     smoothing spline controlled by `noise_level`. Return the fitted counts
     at the original energies. If `plotting` is true, plot the input,
     residual, and fitted background on logarithmic intensity axes.
+    Set legend_outside=False to place legends inside the plotting rectangle.
     """
     energies=spectrum[0]
     spec=spectrum[1]
     m=len(energies)
     mask=np.ones(m,dtype=bool)
-    line_spec=get_xray_lines_xraydb(elements)
+    line_spec=get_xray_lines_exspy(elements)
     #count=0
     all_energies=[]
     for element in line_spec:
@@ -954,7 +1306,7 @@ def get_background(spectrum,elements,peak_width=0.25,noise_level=150,plotting=Tr
         plt.semilogy(energies,spec,c='k',label='original data')
         plt.semilogy(energies,spec-spl(energies),'.',c='b',markersize=0.75,label='peaks removed data')
         plt.semilogy(energies,spl(energies),c='r',label='background')
-        plt.legend()
+        _place_plot_legends(plt.gca(), legend_outside)
         plt.xlabel('photon energy [keV]')
     return spl(energies)
 

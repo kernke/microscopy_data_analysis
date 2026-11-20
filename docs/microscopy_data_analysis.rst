@@ -76,6 +76,14 @@ microscopy\_data\_analysis.visualisation module
    :undoc-members:
    :show-inheritance:
 
+microscopy\_data\_analysis.edx_functions module
+------------------------------------------------
+
+.. automodule:: microscopy_data_analysis.edx_functions
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 ..
   Module contents
   ---------------

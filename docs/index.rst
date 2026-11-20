@@ -14,6 +14,7 @@ All code available at `github <https://github.com/kernke/microscopy_data_analysi
 
    1D_examples
    2D_examples
+	 EDX_example
    microscopy_data_analysis
    test
 
