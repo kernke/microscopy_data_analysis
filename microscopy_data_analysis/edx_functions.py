@@ -81,7 +81,7 @@ def extract_data(filepath,verbose=True):
     Live Map reader outputs, respectively. All entries include per-measurement
     metadata, `BeamKV`, `spectrum`, `weight_fractions`, and
     `atomic_percentages` in measurement order. The composition values
-    align with `elements` in 0D and `composition_elements` in 1D and 2D.
+    align with `composition_elements` in every spatial dimension.
 
     Always print the discovered internal HDF5 path. With `verbose=True`,
     also print the measurement names and type codes for each area.
@@ -103,9 +103,9 @@ def extract_data(filepath,verbose=True):
 
     experiment = {}
     spatial_groups = (
-        ("0D", (0, 1, 2, 3), get_1D_spectra),
-        ("1D", (4,), get_linescan),
-        ("2D", (5,), get_map),
+        ("0D", (0, 1, 2, 3), get_0D_spectrum),
+        ("1D", (4,), get_1D_linescan),
+        ("2D", (5,), get_2D_map),
     )
     for c, area in enumerate(keys):
         area_path = h5path.rstrip("/") + "/" + area
@@ -133,11 +133,11 @@ def extract_data(filepath,verbose=True):
             }
             result = read_measurements(filepath, area_path, measurements)
             if dimension == "0D":
-                fields = ("spectrum", "metadata", "elements", "weight_fractions", "atomic_percentages")
+                fields = ("spectrum", "metadata", "composition_elements", "weight_fractions", "atomic_percentages")
             else:
                 fields = (
                     "elements", "element_maps", "spectrum", "dataset",
-                    "metadata", "cps_image", "map_image", "composition_elements",
+                    "metadata", "total_counts_image", "se_image", "composition_elements",
                     "weight_fractions", "atomic_percentages",
                 )
             entry.update(zip(fields, result))
@@ -397,8 +397,8 @@ def plot_1D_maps(experiment, area, index=0, mask=None, mpl_colorlist=None,
     if mask is None:
         mask = []
     entry = experiment[area]
-    cps = np.asarray(entry["cps_image"][index]).reshape(1, -1)
-    se_image = np.asarray(entry["map_image"][index]).reshape(1, -1)
+    cps = np.asarray(entry["total_counts_image"][index]).reshape(1, -1)
+    se_image = np.asarray(entry["se_image"][index]).reshape(1, -1)
     orbitals = entry["metadata"][index]["orbitals"]
     masked_elements = set(mask)
     x1, y1, x2, y2 = np.asarray(entry["regions_pix"][index][:4]).reshape(4)
@@ -499,8 +499,8 @@ def plot_2D_maps(experiment, area, index=0, mask=None, grid_division=3):
         raise ValueError("grid_division must be a positive integer.")
 
     entry = experiment[area]
-    se_image = entry["map_image"][index]
-    cps_image = entry["cps_image"][index]
+    se_image = entry["se_image"][index]
+    total_counts_image = entry["total_counts_image"][index]
     element_maps = entry["element_maps"][index]
     elements = entry["elements"][index]
     orbitals = entry["metadata"][index]["orbitals"]
@@ -523,11 +523,11 @@ def plot_2D_maps(experiment, area, index=0, mask=None, grid_division=3):
 
     axes[0, 0].imshow(se_image, cmap="gray")
     axes[0, 0].set_title("SE-Signal")
-    counts = axes[0, 2].imshow(cps_image, cmap="plasma")
+    counts = axes[0, 2].imshow(total_counts_image, cmap="plasma")
     axes[0, 2].set_title("X-ray Counts")
     fig.colorbar(counts, ax=axes[0, 2])
 
-    overlay = np.zeros((*cps_image.shape, 3))
+    overlay = np.zeros((*total_counts_image.shape, 3))
     for ax, (image, element, orbital, color) in zip(axes.flat[3:], visible_maps):
         intensity = np.where(np.isfinite(image) & (image > 0), image, 0)
         peak = intensity.max(initial=0)
@@ -911,7 +911,7 @@ def fit_0D_measurement(experiment, area, background_method="polynomial",
         energy, counts = entry["spectrum"][index]
         metadata = entry["metadata"][index]
         fitted, background, fit_metadata = fit_eds_spectrum(
-            energy, counts, entry["elements"][index], metadata["orbitals"],
+            energy, counts, entry["composition_elements"][index], metadata["orbitals"],
             metadata["DetectorResolution"], entry["BeamKV"][index],
             background_method=background_method, background_options=background_options,
             force_positive_peaks=force_positive_peaks,
@@ -966,23 +966,23 @@ def plot_fitted_spectrum(metadata, title=None, logscale_y=False, legend_outside=
     return ax
 
 
-def get_1D_spectra(filepath,h5path,kp):
+def get_0D_spectrum(filepath,h5path,kp):
     """Read spectra, acquisition settings, and composition for measurements in `kp`.
 
     Resolve each name under the area at `h5path` in `filepath`. Return
-    `(spectra, metadata, elements, weight_fractions, atomic_percentages)`
+    `(spectra, metadata, composition_elements, weight_fractions, atomic_percentages)`
     as five lists in input order. Each spectrum has two rows
     containing photon energies in keV and counts. Each metadata dictionary
     comes from HOSTPARAMS with SPC `DetectorResolution` (FWHM at Mn Ka,
     in eV) and `orbitals`
-    from SPC ZShells, aligned with the returned elements (1=K, 2=L, 3=M).
+    from SPC ZShells, aligned with the returned composition_elements (1=K, 2=L, 3=M).
     Unrecognized or unavailable shell codes yield None. The composition values
     follow the nonzero SPC atomic numbers. Atomic percentages are NaN
-    when elements are present but their weight fraction is zero.
+    when composition_elements are present but their weight fraction is zero.
     """
     spectra=[]
     metadata = []
-    elements = []
+    composition_elements = []
     weight_fractions = []
     atomic_percentages = []
     with h5py.File(filepath,'r') as h5file:
@@ -1000,7 +1000,7 @@ def get_1D_spectra(filepath,h5path,kp):
             valid = atomic_numbers != 0
             atomic_numbers = atomic_numbers[valid]
             weights = weights[valid]
-            elements.append([_ELEMENT_SYMBOLS[int(z)] for z in atomic_numbers])
+            composition_elements.append([_ELEMENT_SYMBOLS[int(z)] for z in atomic_numbers])
             if "ZShells" in spc.dtype.names:
                 shells = np.asarray(spc["ZShells"]).reshape(-1)[:n][valid]
             else:
@@ -1012,14 +1012,14 @@ def get_1D_spectra(filepath,h5path,kp):
 
             masses = np.array([
                 exs.material.elements[symbol].General_properties.atomic_weight
-                for symbol in elements[-1]
+                for symbol in composition_elements[-1]
             ])
             moles = weights / masses
             total_moles = moles.sum()
             percentages = np.full(moles.shape, np.nan)
             np.divide(100 * moles, total_moles, out=percentages, where=total_moles != 0)
             atomic_percentages.append(percentages)
-    return spectra, metadata, elements, weight_fractions, atomic_percentages
+    return spectra, metadata, composition_elements, weight_fractions, atomic_percentages
 
 
 def _get_host_metadata(measurement):
@@ -1035,16 +1035,16 @@ def _get_host_metadata(measurement):
     return metadata
 
 
-def get_map(filepath, h5path, kp):
+def get_2D_map(filepath, h5path, kp):
     """Read Live Maps named in `kp` under the area at `h5path` in `filepath`.
 
     Return `(elements, element_maps, total_spectrum, dataset, metadata,
-    cps_image, map_image, composition_elements, weight_fractions,
+    total_counts_image, se_image, composition_elements, weight_fractions,
     atomic_percentages)` in measurement order. Each map has parallel ROI
     lists of element symbols, images from .dat datasets, and orbital labels
     in its metadata dictionary. Metadata also includes a copy of the element
     list and the host and map collection parameters. `total_spectrum` is the
-    spectra list from `get_1D_spectra`, and `dataset` contains the raw SPD arrays.
+    spectra list from `get_0D_spectrum`, and `dataset` contains the raw SPD arrays.
     Each MAPIMAGE is reshaped to match its counts-per-second image. The
     final three lists report SPC composition in SPC element order.
     """
@@ -1053,8 +1053,8 @@ def get_map(filepath, h5path, kp):
     element_maps = []
     dataset = []
     metadata = []
-    cps_image = []
-    map_image = []
+    total_counts_image = []
+    se_image = []
     with h5py.File(filepath, "r") as h5file:
         area = h5file[h5path]
         for name in kp:
@@ -1066,8 +1066,8 @@ def get_map(filepath, h5path, kp):
             element_maps.append([rois[roi_name][()] for roi_name in roi_names])
             dataset.append(live_map["SPD"][()])
             cps = live_map["CPS"][()]
-            cps_image.append(cps)
-            map_image.append(live_map["MAPIMAGE"][()].reshape(cps.shape))
+            total_counts_image.append(cps)
+            se_image.append(live_map["MAPIMAGE"][()].reshape(cps.shape))
             map_params = live_map["MAPIMAGECOLLECTIONPARAMS"][()]
             map_metadata = _get_host_metadata(live_map)
             map_metadata["elements"] = elements[-1].copy()
@@ -1077,27 +1077,27 @@ def get_map(filepath, h5path, kp):
                 for field in ("mmFieldHeight", "mmFieldWidth", "Frames", "TiltCorrected")
             })
             metadata.append(map_metadata)
-    total_spectrum, _, composition_elements, weight_fractions, atomic_percentages = get_1D_spectra(
+    total_spectrum, _, composition_elements, weight_fractions, atomic_percentages = get_0D_spectrum(
         filepath, h5path, kp
     )
     return (
-        elements, element_maps, total_spectrum, dataset, metadata, cps_image,
-        map_image, composition_elements, weight_fractions, atomic_percentages,
+        elements, element_maps, total_spectrum, dataset, metadata, total_counts_image,
+        se_image, composition_elements, weight_fractions, atomic_percentages,
     )
 
 
-def get_linescan(filepath, h5path, kp):
+def get_1D_linescan(filepath, h5path, kp):
     """Read LineScans named in `kp` under the area at `h5path` in `filepath`.
 
     Return `(elements, element_maps, total_spectrum, dataset, metadata,
-    cps_image, map_image, composition_elements, weight_fractions,
+    total_counts_image, se_image, composition_elements, weight_fractions,
     atomic_percentages)` in measurement order. Each scan has parallel ROI
     lists of element symbols, profiles, and orbital labels in its host
     metadata dictionary, which also contains a copy of the element list.
     `total_spectrum` is the spectra list from
-    `get_1D_spectra`, and `dataset` contains the raw LSD arrays.
+    `get_0D_spectrum`, and `dataset` contains the raw LSD arrays.
     Both image outputs contain one row per scan, with shape `(1, N)`.
-    `cps_image` sums each LSD array along its last axis. `map_image`
+    `total_counts_image` sums each LSD array along its last axis. `se_image`
     contains the field-of-view pixel values at `NPoints` evenly spaced
     positions from the stored start to end, using the pixel that contains
     each position. The final three lists report SPC composition in SPC
@@ -1108,8 +1108,8 @@ def get_linescan(filepath, h5path, kp):
     element_maps = []
     dataset = []
     metadata = []
-    cps_image = []
-    map_image = []
+    total_counts_image = []
+    se_image = []
     if kp:
         img, _ = get_image(filepath, h5path)
         height, width = img.shape[:2]
@@ -1124,7 +1124,7 @@ def get_linescan(filepath, h5path, kp):
             element_maps.append([rois[roi_name][()] for roi_name in roi_names])
             scan_data = linescan["LSD"][()]
             dataset.append(scan_data)
-            cps_image.append(scan_data.sum(axis=-1).reshape(1, -1))
+            total_counts_image.append(scan_data.sum(axis=-1).reshape(1, -1))
 
             region = linescan["REGION"][0]
             point_count = int(region["NPoints"])
@@ -1132,17 +1132,17 @@ def get_linescan(filepath, h5path, kp):
             y = np.linspace(region["Y1"], region["Y2"], point_count) * height
             cols = np.clip(np.floor(x).astype(int), 0, width - 1)
             rows = np.clip(np.floor(y).astype(int), 0, height - 1)
-            map_image.append(img[rows, cols][None, :])
+            se_image.append(img[rows, cols][None, :])
             scan_metadata = _get_host_metadata(linescan)
             scan_metadata["elements"] = elements[-1].copy()
             scan_metadata["orbitals"] = [orbital for element, orbital in roi_labels]
             metadata.append(scan_metadata)
-    total_spectrum, _, composition_elements, weight_fractions, atomic_percentages = get_1D_spectra(
+    total_spectrum, _, composition_elements, weight_fractions, atomic_percentages = get_0D_spectrum(
         filepath, h5path, kp
     )
     return (
-        elements, element_maps, total_spectrum, dataset, metadata, cps_image,
-        map_image, composition_elements, weight_fractions, atomic_percentages,
+        elements, element_maps, total_spectrum, dataset, metadata, total_counts_image,
+        se_image, composition_elements, weight_fractions, atomic_percentages,
     )
 
 
@@ -1264,7 +1264,7 @@ def create_all_figures(experiment, output_path, element_list=None, logscale_y_mi
                     if dimension != "0D":
                         elements = list(dict.fromkeys(entry["elements"][0]))
                     elif element_list is None:
-                        elements = sorted({element for group in entry["elements"] for element in group})
+                        elements = sorted({element for group in entry["composition_elements"] for element in group})
                     else:
                         elements = element_list
                     plot_xray_lines_exspy(result, elements)

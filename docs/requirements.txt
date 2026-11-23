@@ -3,7 +3,7 @@ opencv-python==4.13.0.92
 numba==0.64.0
 scipy==1.17.1
 h5py==3.16.0
-hyperspy==2.4.0
+hyperspy==2.5.0
 exspy==0.3.2
 scikit-image==0.26.0
 shapely==2.1.2
